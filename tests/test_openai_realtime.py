@@ -430,6 +430,76 @@ async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions
 
 
 @pytest.mark.asyncio
+async def test_run_realtime_session_passes_allocated_session_query(monkeypatch: Any) -> None:
+    """Speech-to-speech sessions must forward the allocated session token to the websocket connect call."""
+    monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=rt_mod.DEFAULT_VOICE: default)
+    monkeypatch.setattr(rt_mod, "get_tool_specs", lambda: [])
+
+    captured_connect: dict[str, Any] = {}
+
+    class FakeSession:
+        async def update(self, **_kw: Any) -> None:
+            pass
+
+    class FakeInputAudioBuffer:
+        async def append(self, **_kw: Any) -> None:
+            pass
+
+    class FakeItem:
+        async def create(self, **_kw: Any) -> None:
+            pass
+
+    class FakeConversation:
+        item = FakeItem()
+
+    class FakeResponse:
+        async def create(self, **_kw: Any) -> None:
+            pass
+
+        async def cancel(self, **_kw: Any) -> None:
+            pass
+
+    class FakeConn:
+        session = FakeSession()
+        input_audio_buffer = FakeInputAudioBuffer()
+        conversation = FakeConversation()
+        response = FakeResponse()
+
+        async def __aenter__(self) -> "FakeConn":
+            return self
+
+        async def __aexit__(self, *_args: Any) -> bool:
+            return False
+
+        async def close(self) -> None:
+            pass
+
+        def __aiter__(self) -> "FakeConn":
+            return self
+
+        async def __anext__(self) -> Any:
+            raise StopAsyncIteration
+
+    class FakeRealtime:
+        def connect(self, **kwargs: Any) -> FakeConn:
+            captured_connect.update(kwargs)
+            return FakeConn()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.realtime = FakeRealtime()
+
+    handler = OpenaiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    handler.client = FakeClient()
+    handler._realtime_connect_query = {"session_token": "abc123"}
+
+    await handler._run_realtime_session()
+
+    assert captured_connect["extra_query"] == {"session_token": "abc123"}
+
+
+@pytest.mark.asyncio
 async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(monkeypatch: Any) -> None:
     """Live personality updates should honor the selected Qwen CustomVoice speaker."""
     monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "new instructions")

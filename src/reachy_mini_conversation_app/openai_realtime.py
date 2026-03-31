@@ -111,6 +111,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         # Track how the API key was provided (env vs textbox) and its value
         self._key_source: Literal["env", "textbox"] = "env"
         self._provided_api_key: str | None = None
+        self._realtime_connect_query: dict[str, str] = {}
 
         # Debouncing for partial transcripts
         self.partial_transcript_task: asyncio.Task[None] | None = None
@@ -455,7 +456,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
     async def _run_realtime_session(self) -> None:
         """Establish and manage a single realtime session."""
-        async with self.client.realtime.connect(model=config.OPENAI_MODEL_NAME) as conn:
+        async with self.client.realtime.connect(
+            model=config.OPENAI_MODEL_NAME,
+            extra_query=self._realtime_connect_query,
+        ) as conn:
             try:
                 session_config = RealtimeSessionCreateRequestParam(
                     type="realtime",
@@ -842,6 +846,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         """Build the realtime SDK client, optionally via the s2s session allocator."""
         resolved_api_key = (api_key or self._provided_api_key or config.OPENAI_API_KEY or "").strip()
         if config.BACKEND_PROVIDER == "openai":
+            self._realtime_connect_query = {}
             if not resolved_api_key:
                 # In headless console mode, LocalStream now blocks startup until the key is provided.
                 # However, unit tests may invoke this handler directly with a stubbed client.
@@ -870,11 +875,11 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
         base_path = path[: -len("/realtime")]
         logger.info("Allocated realtime session %s", payload.get("session_id") or "<unknown>")
+        self._realtime_connect_query = dict(parse_qsl(parsed.query, keep_blank_values=True))
         return AsyncOpenAI(
             api_key=resolved_api_key or "DUMMY",
             base_url=urlunsplit(("https" if parsed.scheme == "wss" else "http", parsed.netloc, base_path, "", "")),
             websocket_base_url=urlunsplit((parsed.scheme, parsed.netloc, base_path, "", "")),
-            default_query=dict(parse_qsl(parsed.query, keep_blank_values=True)),
         )
 
     async def send_idle_signal(self, idle_duration: float) -> None:
