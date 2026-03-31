@@ -587,6 +587,133 @@ def test_compute_response_cost(usage_kwargs: dict[str, Any], expect_positive: bo
 
 
 @pytest.mark.asyncio
+async def test_response_sender_retries_when_active_response_error_uses_type_only(
+    monkeypatch: Any, caplog: Any,
+) -> None:
+    """Retry active-response rejections even when the server omits ``error.code``.
+
+    Some backends only populate ``error.type=conversation_already_has_active_response``.
+    That should still take the retry path and must not be surfaced as a user-facing error.
+    """
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=rt_mod.DEFAULT_VOICE: "alloy")
+    monkeypatch.setattr(rt_mod, "get_tool_specs", lambda: [])
+
+    event_queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    class FakeError:
+        def __init__(self, message: str) -> None:
+            self.message = message
+            self.code = None
+            self.type = "conversation_already_has_active_response"
+            self.event_id = None
+            self.param = None
+
+        def __repr__(self) -> str:
+            return (
+                f"RealtimeError(message='{self.message}', type='{self.type}', "
+                "code=None, event_id=None, param=None)"
+            )
+
+    class FakeEvent:
+        def __init__(self, etype: str, **kwargs: Any) -> None:
+            self.type = etype
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    class FakeSession:
+        async def update(self, **_kw: Any) -> None:
+            pass
+
+    class FakeInputAudioBuffer:
+        async def append(self, **_kw: Any) -> None:
+            pass
+
+    class FakeItem:
+        async def create(self, **_kw: Any) -> None:
+            pass
+
+    class FakeConversation:
+        item = FakeItem()
+
+    class FakeResponseAPI:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        async def create(self, **_kw: Any) -> None:
+            self.call_count += 1
+            if self.call_count == 1:
+                await event_queue.put(
+                    FakeEvent(
+                        "error",
+                        error=FakeError("Cannot create response while another response is in progress."),
+                    )
+                )
+            else:
+                await event_queue.put(FakeEvent("response.created"))
+            await asyncio.sleep(0)
+            await event_queue.put(FakeEvent("response.done", response=MagicMock()))
+
+        async def cancel(self, **_kw: Any) -> None:
+            pass
+
+    fake_response_api = FakeResponseAPI()
+
+    class FakeConn:
+        session = FakeSession()
+        input_audio_buffer = FakeInputAudioBuffer()
+        conversation = FakeConversation()
+        response = fake_response_api
+
+        async def __aenter__(self) -> "FakeConn":
+            return self
+
+        async def __aexit__(self, *_args: Any) -> bool:
+            return False
+
+        async def close(self) -> None:
+            pass
+
+        def __aiter__(self) -> "FakeConn":
+            return self
+
+        async def __anext__(self) -> Any:
+            event = await event_queue.get()
+            if event is None:
+                raise StopAsyncIteration
+            return event
+
+    class FakeRealtime:
+        def connect(self, **_kw: Any) -> FakeConn:
+            return FakeConn()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.realtime = FakeRealtime()
+
+    handler = rt_mod.OpenaiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    handler.client = FakeClient()
+
+    session_task = asyncio.create_task(handler._run_realtime_session())
+    await asyncio.sleep(0)
+    await handler._safe_response_create(instructions="req")
+    await asyncio.sleep(0.1)
+    await event_queue.put(None)
+    await asyncio.wait_for(session_task, timeout=2.0)
+
+    assert fake_response_api.call_count == 2
+    assert not any(
+        record.levelname == "ERROR" and "Realtime error" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "worker will retry after active response finishes" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_response_sender_retries_on_active_response_rejection(monkeypatch: Any, caplog: Any) -> None:
     """Stress test: response.create rejection + retry via real event processing.
 

@@ -657,7 +657,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     if event.type == "error":
                         err = getattr(event, "error", None)
                         msg = getattr(err, "message", str(err) if err else "unknown error")
-                        code = getattr(err, "code", "")
+                        code = getattr(err, "code", "") or getattr(err, "type", "")
 
                         if code == "conversation_already_has_active_response":
                             # response.create was rejected.  The sender worker
