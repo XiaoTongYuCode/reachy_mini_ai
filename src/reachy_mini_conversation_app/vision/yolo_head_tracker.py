@@ -1,19 +1,22 @@
 from __future__ import annotations
 import logging
-from typing import Tuple
+from typing import Any, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
 
 
 try:
+    import ultralytics
     from supervision import Detections
-    from ultralytics import YOLO
 except ImportError as e:
     raise ImportError(
         "To use YOLO head tracker, please install the extra dependencies: pip install '.[yolo_vision]'",
     ) from e
 from huggingface_hub import hf_hub_download
+
+
+YOLO: Any = getattr(ultralytics, "YOLO")
 
 
 logger = logging.getLogger(__name__)
