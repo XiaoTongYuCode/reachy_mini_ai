@@ -1,5 +1,6 @@
 import json
 import uuid
+import wave
 import base64
 import random
 import asyncio
@@ -135,6 +136,11 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         self._audio_debug_total_samples: int = 0
         self._audio_debug_first_chunk_samples: int | None = None
         self._audio_debug_response_created_at: float | None = None
+        self._assistant_audio_dump_enabled = logging.getLogger().isEnabledFor(logging.DEBUG)
+        self._assistant_audio_dump_dir = self._resolve_assistant_audio_dump_dir(instance_path)
+        self._assistant_audio_dump_stream_index = 0
+        self._assistant_audio_dump_current_index: int | None = None
+        self._assistant_audio_dump_chunks: list[bytes] = []
 
     @staticmethod
     def _get_realtime_sample_rate() -> int:
@@ -179,6 +185,57 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         """Record non-idle conversation activity for the idle timer."""
         self.last_activity_time = asyncio.get_event_loop().time()
         logger.debug("last activity time updated to %s (%s)", self.last_activity_time, reason)
+
+    @staticmethod
+    def _resolve_assistant_audio_dump_dir(instance_path: Optional[str]) -> Path:
+        """Store debug assistant PCM dumps in a predictable local directory."""
+        base_dir = Path(instance_path) if instance_path is not None else Path.cwd()
+        return base_dir / "debug_audio" / "assistant_audio"
+
+    def _append_assistant_audio_dump_chunk(self, pcm_chunk: bytes) -> None:
+        """Accumulate raw assistant PCM chunks for debug WAV export."""
+        if not self._assistant_audio_dump_enabled:
+            return
+        if self._assistant_audio_dump_current_index is None:
+            self._assistant_audio_dump_stream_index += 1
+            self._assistant_audio_dump_current_index = self._assistant_audio_dump_stream_index
+        self._assistant_audio_dump_chunks.append(pcm_chunk)
+
+    def _flush_assistant_audio_dump(self, reason: str) -> None:
+        """Write the accumulated assistant PCM stream to a mono 16-bit WAV file."""
+        if not self._assistant_audio_dump_enabled:
+            return
+
+        stream_index = self._assistant_audio_dump_current_index
+        chunks = self._assistant_audio_dump_chunks
+        self._assistant_audio_dump_current_index = None
+        self._assistant_audio_dump_chunks = []
+
+        if stream_index is None or not chunks:
+            return
+
+        self._assistant_audio_dump_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S_%fZ")
+        provider = config.BACKEND_PROVIDER.replace("-", "_")
+        file_path = (
+            self._assistant_audio_dump_dir
+            / f"{timestamp}_{provider}_stream{stream_index:03d}_{self.output_sample_rate}hz_{reason}.wav"
+        )
+        pcm_bytes = b"".join(chunks)
+
+        with wave.open(str(file_path), "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(self.output_sample_rate)
+            wav_file.writeframes(pcm_bytes)
+
+        logger.debug(
+            "Saved assistant audio dump: path=%s samples=%d duration_ms=%.1f reason=%s",
+            file_path,
+            len(pcm_bytes) // 2,
+            1000.0 * (len(pcm_bytes) // 2) / self.output_sample_rate,
+            reason,
+        )
 
     def copy(self) -> "OpenaiRealtimeHandler":
         """Create a copy of the handler."""
@@ -564,6 +621,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                 async for event in self.connection:
                     logger.debug(f"OpenAI event: {event.type}")
                     if event.type == "input_audio_buffer.speech_started":
+                        self._flush_assistant_audio_dump("interrupted")
                         self._mark_activity("user_speech_started")
                         if hasattr(self, "_clear_queue") and callable(self._clear_queue):
                             self._clear_queue()
@@ -581,6 +639,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                         logger.debug("response completed")
 
                     if event.type == "response.created":
+                        self._flush_assistant_audio_dump("orphaned")
                         self._mark_activity("response_created")
                         self._response_done_event.clear()
                         self._audio_debug_response_index += 1
@@ -659,7 +718,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
                     # Handle audio delta
                     if event.type == "response.output_audio.delta":
-                        decoded_pcm = np.frombuffer(base64.b64decode(event.delta), dtype=np.int16).reshape(1, -1)
+                        decoded_pcm_bytes = base64.b64decode(event.delta)
+                        self._append_assistant_audio_dump_chunk(decoded_pcm_bytes)
+                        decoded_pcm = np.frombuffer(decoded_pcm_bytes, dtype=np.int16).reshape(1, -1)
                         chunk_samples = int(decoded_pcm.shape[-1])
                         self._audio_debug_chunk_count += 1
                         self._audio_debug_total_samples += chunk_samples
@@ -691,6 +752,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                             ),
                         )
                     if event.type == "response.output_audio.done":
+                        self._flush_assistant_audio_dump("complete")
                         logger.debug(
                             "Assistant audio stream finished: response=%d chunks=%d total_duration_ms=%.1f "
                             "first_chunk_duration_ms=%s sample_rate=%d",
@@ -779,6 +841,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
                 # Stop background tool manager tasks (listener + cleanup) in all patus.
                 await self.tool_manager.shutdown()
+                self._flush_assistant_audio_dump("session_end")
 
     # Microphone receive
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:
@@ -843,6 +906,7 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         """Shutdown the handler."""
         # Unblock the response sender worker so it can exit
         self._response_done_event.set()
+        self._flush_assistant_audio_dump("shutdown")
 
         # Stop background tool manager tasks (listener + cleanup)
         await self.tool_manager.shutdown()

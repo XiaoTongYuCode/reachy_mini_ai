@@ -1,3 +1,5 @@
+import wave
+import base64
 import random
 import asyncio
 import logging
@@ -511,6 +513,108 @@ async def test_output_audio_delta_passes_output_sample_rate_to_head_wobbler(monk
     await handler._run_realtime_session()
 
     head_wobbler.feed.assert_called_once_with(audio_delta, sample_rate=handler.output_sample_rate)
+
+
+@pytest.mark.asyncio
+async def test_debug_mode_writes_assistant_audio_dump_wav(monkeypatch: Any, tmp_path: Any) -> None:
+    """Completed assistant audio streams should be dumped to a WAV file in debug mode."""
+    monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=DEFAULT_VOICE: "alloy")
+    monkeypatch.setattr(rt_mod, "get_tool_specs", lambda: [])
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+
+    audio_delta = "AAABAAIAAwA="
+
+    class FakeEvent:
+        def __init__(self, etype: str, **kwargs: Any) -> None:
+            self.type = etype
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    class FakeSession:
+        async def update(self, **_kw: Any) -> None:
+            pass
+
+    class FakeInputAudioBuffer:
+        async def append(self, **_kw: Any) -> None:
+            pass
+
+    class FakeItem:
+        async def create(self, **_kw: Any) -> None:
+            pass
+
+    class FakeConversation:
+        item = FakeItem()
+
+    class FakeResponse:
+        async def create(self, **_kw: Any) -> None:
+            pass
+
+        async def cancel(self, **_kw: Any) -> None:
+            pass
+
+    class FakeConn:
+        session = FakeSession()
+        input_audio_buffer = FakeInputAudioBuffer()
+        conversation = FakeConversation()
+        response = FakeResponse()
+
+        def __init__(self) -> None:
+            self._events = iter(
+                [
+                    FakeEvent("response.created"),
+                    FakeEvent("response.output_audio.delta", delta=audio_delta),
+                    FakeEvent("response.output_audio.done"),
+                ]
+            )
+
+        async def __aenter__(self) -> "FakeConn":
+            return self
+
+        async def __aexit__(self, *_args: Any) -> bool:
+            return False
+
+        async def close(self) -> None:
+            pass
+
+        def __aiter__(self) -> "FakeConn":
+            return self
+
+        async def __anext__(self) -> FakeEvent:
+            try:
+                return next(self._events)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    class FakeRealtime:
+        def connect(self, **_kw: Any) -> FakeConn:
+            return FakeConn()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.realtime = FakeRealtime()
+
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    handler = OpenaiRealtimeHandler(deps)
+    handler.client = FakeClient()
+    handler._assistant_audio_dump_enabled = True
+    handler._assistant_audio_dump_dir = tmp_path
+
+    start_up = MagicMock()
+    shutdown = AsyncMock()
+    object.__setattr__(handler.tool_manager, "start_up", start_up)
+    object.__setattr__(handler.tool_manager, "shutdown", shutdown)
+
+    await handler._run_realtime_session()
+
+    wav_files = list(tmp_path.glob("*.wav"))
+    assert len(wav_files) == 1
+
+    with wave.open(str(wav_files[0]), "rb") as wav_file:
+        assert wav_file.getnchannels() == 1
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getframerate() == handler.output_sample_rate
+        assert wav_file.readframes(wav_file.getnframes()) == base64.b64decode(audio_delta)
 
 
 @pytest.mark.asyncio
