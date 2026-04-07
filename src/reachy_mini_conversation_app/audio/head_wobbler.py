@@ -14,7 +14,6 @@ from numpy.typing import NDArray
 from reachy_mini_conversation_app.audio.speech_tapper import HOP_MS, SwayRollRT
 
 
-SAMPLE_RATE = 24000
 MOVEMENT_LATENCY_S = 0.2  # seconds between audio and robot movement
 logger = logging.getLogger(__name__)
 
@@ -22,13 +21,18 @@ logger = logging.getLogger(__name__)
 class HeadWobbler:
     """Converts audio deltas (base64) into head movement offsets."""
 
-    def __init__(self, set_speech_offsets: Callable[[Tuple[float, float, float, float, float, float]], None]) -> None:
+    def __init__(
+        self,
+        set_speech_offsets: Callable[[Tuple[float, float, float, float, float, float]], None],
+        default_sample_rate: int | None = None,
+    ) -> None:
         """Initialize the head wobbler."""
         self._apply_offsets = set_speech_offsets
+        self._default_sample_rate = default_sample_rate
         self._base_ts: float | None = None
         self._hops_done: int = 0
 
-        self.audio_queue: "queue.Queue[Tuple[int, int, NDArray[np.int16]]]" = queue.Queue()
+        self.audio_queue: "queue.Queue[Tuple[int, int | None, NDArray[np.int16]]]" = queue.Queue()
         self.sway = SwayRollRT()
 
         # Synchronization primitives
@@ -39,12 +43,13 @@ class HeadWobbler:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def feed(self, delta_b64: str) -> None:
+    def feed(self, delta_b64: str, sample_rate: int | None = None) -> None:
         """Thread-safe: push audio into the consumer queue."""
         buf = np.frombuffer(base64.b64decode(delta_b64), dtype=np.int16).reshape(1, -1)
+        sr = sample_rate if sample_rate is not None else self._default_sample_rate
         with self._state_lock:
             generation = self._generation
-        self.audio_queue.put((generation, SAMPLE_RATE, buf))
+        self.audio_queue.put((generation, sr, buf))
 
     def start(self) -> None:
         """Start the head wobbler loop in a thread."""

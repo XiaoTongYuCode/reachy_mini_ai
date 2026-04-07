@@ -118,7 +118,10 @@ def run(
         camera_worker=camera_worker,
     )
 
-    head_wobbler = HeadWobbler(set_speech_offsets=movement_manager.set_speech_offsets)
+    head_wobbler = HeadWobbler(
+        set_speech_offsets=movement_manager.set_speech_offsets,
+        default_sample_rate=OpenaiRealtimeHandler._get_realtime_sample_rate(),
+    )
 
     deps = ToolDependencies(
         reachy_mini=robot,

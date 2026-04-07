@@ -12,9 +12,8 @@ import numpy as np
 from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
 
 
-def _make_audio_chunk(duration_s: float = 0.3, frequency_hz: float = 220.0) -> str:
+def _make_audio_chunk(duration_s: float = 0.3, frequency_hz: float = 220.0, sample_rate: int = 24000) -> str:
     """Generate a base64-encoded mono PCM16 sine wave."""
-    sample_rate = 24000
     sample_count = int(sample_rate * duration_s)
     t = np.linspace(0, duration_s, sample_count, endpoint=False)
     wave = 0.6 * np.sin(2 * math.pi * frequency_hz * t)
@@ -108,3 +107,25 @@ def test_reset_during_inflight_chunk_keeps_worker(monkeypatch: Any) -> None:
         assert wobbler._thread.is_alive()
     finally:
         wobbler.stop()
+
+
+def test_feed_uses_explicit_sample_rate() -> None:
+    """Head wobble chunks should keep the provided assistant sample rate."""
+    wobbler = HeadWobbler(set_speech_offsets=lambda _offsets: None)
+
+    wobbler.feed(_make_audio_chunk(duration_s=0.1, sample_rate=16000), sample_rate=16000)
+
+    generation, sample_rate, chunk = wobbler.audio_queue.get_nowait()
+    assert generation == 0
+    assert sample_rate == 16000
+    assert chunk.shape[0] == 1
+
+
+def test_feed_falls_back_to_default_sample_rate() -> None:
+    """Head wobble chunks should use the configured default sample rate when omitted."""
+    wobbler = HeadWobbler(set_speech_offsets=lambda _offsets: None, default_sample_rate=24000)
+
+    wobbler.feed(_make_audio_chunk(duration_s=0.1))
+
+    _, sample_rate, _ = wobbler.audio_queue.get_nowait()
+    assert sample_rate == 24000
