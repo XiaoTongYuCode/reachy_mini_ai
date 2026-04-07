@@ -44,6 +44,15 @@ except Exception:  # pragma: no cover - only loaded when settings_app is used
 logger = logging.getLogger(__name__)
 
 
+def _load_gst() -> object | None:
+    """Import Gst lazily so tests do not require GI bindings."""
+    try:
+        from gi.repository import Gst
+    except Exception:
+        return None
+    return Gst
+
+
 class LocalStream:
     """LocalStream using Reachy Mini's recorder/player."""
 
@@ -70,6 +79,7 @@ class LocalStream:
         self._instance_path: Optional[str] = instance_path
         self._settings_initialized = False
         self._asyncio_loop = None
+        self._gstreamer_appsrc_pts_ns = 0
 
     # ---- Settings UI (only when API key is missing) ----
     def _read_env_lines(self, env_path: Path) -> list[str]:
@@ -461,7 +471,49 @@ class LocalStream:
                 audio.clear_output_buffer()
             elif hasattr(audio, "clear_player") and callable(audio.clear_player):
                 audio.clear_player()
-        self.handler.output_queue = asyncio.Queue()
+        self._gstreamer_appsrc_pts_ns = 0
+        while True:
+            try:
+                self.handler.output_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    def _push_local_gstreamer_audio(self, audio_frame, output_sample_rate: int) -> bool:
+        """Push audio with explicit timestamps for local GStreamer playback."""
+        backend = getattr(self._robot.media, "backend", None)
+        local_backends = {
+            candidate
+            for candidate in (
+                getattr(MediaBackend, "LOCAL", None),
+                getattr(MediaBackend, "GSTREAMER", None),
+                getattr(MediaBackend, "GSTREAMER_NO_VIDEO", None),
+            )
+            if candidate is not None
+        }
+        if backend not in local_backends:
+            return False
+
+        audio = getattr(self._robot.media, "audio", None)
+        appsrc = getattr(audio, "_appsrc", None)
+        if appsrc is None or output_sample_rate <= 0:
+            return False
+
+        Gst = _load_gst()
+        if Gst is None:
+            logger.debug("GI/GStreamer unavailable while pushing local audio; falling back to MediaManager")
+            return False
+
+        num_samples = int(audio_frame.shape[0]) if getattr(audio_frame, "ndim", 0) > 0 else 0
+        if num_samples <= 0:
+            return True
+
+        duration_ns = (num_samples * Gst.SECOND) // output_sample_rate
+        buf = Gst.Buffer.new_wrapped(audio_frame.tobytes())
+        buf.pts = self._gstreamer_appsrc_pts_ns
+        buf.duration = duration_ns
+        self._gstreamer_appsrc_pts_ns += duration_ns
+        appsrc.push_buffer(buf)
+        return True
 
     async def record_loop(self) -> None:
         """Read mic frames from the recorder and forward them to the handler."""
@@ -512,7 +564,8 @@ class LocalStream:
                         int(len(audio_frame) * output_sample_rate / input_sample_rate),
                     )
 
-                self._robot.media.push_audio_sample(audio_frame)
+                if not self._push_local_gstreamer_audio(audio_frame, output_sample_rate):
+                    self._robot.media.push_audio_sample(audio_frame)
 
             else:
                 logger.debug("Ignoring output type=%s", type(handler_output).__name__)
