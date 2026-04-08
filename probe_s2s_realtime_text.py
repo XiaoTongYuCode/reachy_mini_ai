@@ -29,6 +29,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from reachy_mini_conversation_app.config import DEFAULT_VOICE, config
 from reachy_mini_conversation_app.prompts import get_session_instructions, get_session_voice
+from reachy_mini_conversation_app.tools.core_tools import get_tool_specs
 
 
 def _pcm(rate: int) -> dict[str, Any]:
@@ -80,6 +81,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the fully resolved system prompt before connecting.",
     )
+    parser.add_argument(
+        "--show-session-config",
+        action="store_true",
+        help="Print the exact session.update payload the probe sends.",
+    )
     return parser.parse_args()
 
 
@@ -111,9 +117,37 @@ async def main() -> None:
         print("=== End Prompt ===")
         print()
 
+    session_update = {
+        "type": "session.update",
+        "session": {
+            "type": "realtime",
+            "instructions": instructions,
+            "audio": {
+                "input": {
+                    "format": _pcm(16000),
+                    "transcription": {"model": "gpt-4o-transcribe", "language": "en"},
+                    "turn_detection": {"type": "server_vad", "interrupt_response": True},
+                },
+                "output": {
+                    "format": _pcm(16000),
+                    "voice": voice,
+                },
+            },
+            "tools": get_tool_specs(),
+            "tool_choice": "auto",
+        },
+    }
+
+    if args.show_session_config:
+        print("=== Session Update Payload ===")
+        print(json.dumps(session_update, indent=2, ensure_ascii=True))
+        print("=== End Session Update Payload ===")
+        print()
+
     print(f"provider: {config.BACKEND_PROVIDER}")
     print(f"voice: {voice}")
     print(f"prompt_chars: {len(instructions)}")
+    print(f"tool_count: {len(get_tool_specs())}")
 
     t0 = time.perf_counter()
     allocation = await allocate_session(args.session_url, args.authorization)
@@ -136,24 +170,6 @@ async def main() -> None:
         ping_interval=20,
         ping_timeout=20,
     ) as websocket:
-        session_update = {
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "instructions": instructions,
-                "audio": {
-                    "input": {
-                        "format": _pcm(16000),
-                        "transcription": {"model": "gpt-4o-transcribe", "language": "en"},
-                        "turn_detection": {"type": "server_vad", "interrupt_response": True},
-                    },
-                    "output": {
-                        "format": _pcm(16000),
-                        "voice": voice,
-                    },
-                },
-            },
-        }
         await websocket.send(json.dumps(session_update))
 
         await websocket.send(

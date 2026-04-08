@@ -44,6 +44,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from reachy_mini_conversation_app.config import DEFAULT_VOICE, config
 from reachy_mini_conversation_app.prompts import get_session_instructions, get_session_voice
+from reachy_mini_conversation_app.tools.core_tools import get_tool_specs
 
 
 SAMPLE_WIDTH = 2
@@ -65,6 +66,7 @@ class ProbeArguments:
     instructions: Optional[str] = None
     print_json: bool = False
     show_prompt: bool = False
+    show_session_config: bool = False
     list_devices: bool = False
 
 
@@ -137,6 +139,11 @@ def parse_args() -> ProbeArguments:
     )
     parser.add_argument("--print-json", action="store_true")
     parser.add_argument("--show-prompt", action="store_true")
+    parser.add_argument(
+        "--show-session-config",
+        action="store_true",
+        help="Print the exact session.update payload the probe sends.",
+    )
     parser.add_argument("--list-devices", action="store_true")
     namespace = parser.parse_args()
     return ProbeArguments(**vars(namespace))
@@ -212,27 +219,31 @@ def _maybe_pcm_format(rate: int) -> dict[str, object]:
     return {"type": "audio/pcm", "rate": rate}
 
 
-def build_session_update_event(args: ProbeArguments, instructions: str, voice: str) -> str:
-    return json.dumps(
-        {
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "instructions": instructions,
-                "audio": {
-                    "input": {
-                        "format": _maybe_pcm_format(args.send_rate),
-                        "transcription": {"model": "gpt-4o-transcribe", "language": "en"},
-                        "turn_detection": {"type": "server_vad", "interrupt_response": True},
-                    },
-                    "output": {
-                        "format": _maybe_pcm_format(args.recv_rate),
-                        "voice": voice,
-                    },
+def build_session_update_payload(args: ProbeArguments, instructions: str, voice: str) -> dict[str, object]:
+    return {
+        "type": "session.update",
+        "session": {
+            "type": "realtime",
+            "instructions": instructions,
+            "audio": {
+                "input": {
+                    "format": _maybe_pcm_format(args.send_rate),
+                    "transcription": {"model": "gpt-4o-transcribe", "language": "en"},
+                    "turn_detection": {"type": "server_vad", "interrupt_response": True},
+                },
+                "output": {
+                    "format": _maybe_pcm_format(args.recv_rate),
+                    "voice": voice,
                 },
             },
-        }
-    )
+            "tools": get_tool_specs(),
+            "tool_choice": "auto",
+        },
+    }
+
+
+def build_session_update_event(args: ProbeArguments, instructions: str, voice: str) -> str:
+    return json.dumps(build_session_update_payload(args, instructions, voice))
 
 
 def build_input_audio_append_event(chunk: bytes) -> str:
@@ -397,6 +408,12 @@ async def listen_and_play_ws(args: ProbeArguments) -> None:
         print("=== End Prompt ===")
         print()
 
+    if args.show_session_config:
+        print("=== Session Update Payload ===")
+        print(json.dumps(build_session_update_payload(args, instructions, voice), indent=2, ensure_ascii=True))
+        print("=== End Session Update Payload ===")
+        print()
+
     playback = PlaybackBuffer()
     received_audio = bytearray()
     stop_event = asyncio.Event()
@@ -509,6 +526,7 @@ async def listen_and_play_ws(args: ProbeArguments) -> None:
     print(f"model: {config.OPENAI_MODEL_NAME}")
     print(f"voice: {voice}")
     print(f"prompt_chars: {len(instructions)}")
+    print(f"tool_count: {len(get_tool_specs())}")
 
     try:
         async with websockets.connect(
