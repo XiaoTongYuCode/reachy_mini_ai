@@ -5,6 +5,7 @@ import base64
 import random
 import asyncio
 import logging
+import time
 from typing import Any, Final, Tuple, Literal, Optional
 from pathlib import Path
 from datetime import datetime
@@ -137,6 +138,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         self._assistant_audio_dump_stream_index = 0
         self._assistant_audio_dump_current_index: int | None = None
         self._assistant_audio_dump_chunks: list[bytes] = []
+        self._turn_user_done_at: float | None = None
+        self._turn_response_created_at: float | None = None
+        self._turn_first_audio_at: float | None = None
 
     @staticmethod
     def _sanitize_tool_result_for_model(tool_name: str, tool_result: dict[str, Any]) -> dict[str, Any]:
@@ -661,6 +665,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     if event.type == "input_audio_buffer.speech_started":
                         self._flush_assistant_audio_dump("interrupted")
                         self._mark_activity("user_speech_started")
+                        self._turn_user_done_at = None
+                        self._turn_response_created_at = None
+                        self._turn_first_audio_at = None
                         if hasattr(self, "_clear_queue") and callable(self._clear_queue):
                             self._clear_queue()
                         if self.deps.head_wobbler is not None:
@@ -681,6 +688,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                         self._mark_activity("response_created")
                         self._response_done_event.clear()
                         self._response_started_or_rejected_event.set()
+                        if self._turn_user_done_at is not None and self._turn_response_created_at is None:
+                            self._turn_response_created_at = time.perf_counter()
+                            delta_ms = (self._turn_response_created_at - self._turn_user_done_at) * 1000
+                            logger.info("Turn latency: response.created %.0f ms after user transcript", delta_ms)
                         logger.debug("Response created (active)")
 
                     if event.type == "response.done":
@@ -733,6 +744,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     if event.type == "conversation.item.input_audio_transcription.completed":
                         self._mark_activity("user_transcription_completed")
                         logger.debug(f"User transcript: {event.transcript}")
+                        self._turn_user_done_at = time.perf_counter()
+                        self._turn_response_created_at = None
+                        self._turn_first_audio_at = None
 
                         # Cancel any pending partial emission
                         if self.partial_transcript_task and not self.partial_transcript_task.done():
@@ -758,6 +772,10 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                         if self.deps.head_wobbler is not None:
                             self.deps.head_wobbler.feed(event.delta, sample_rate=self.output_sample_rate)
                         self._mark_activity("assistant_audio_delta")
+                        if self._turn_user_done_at is not None and self._turn_first_audio_at is None:
+                            self._turn_first_audio_at = time.perf_counter()
+                            delta_ms = (self._turn_first_audio_at - self._turn_user_done_at) * 1000
+                            logger.info("Turn latency: first audio delta %.0f ms after user transcript", delta_ms)
                         await self.output_queue.put(
                             (
                                 self.output_sample_rate,
