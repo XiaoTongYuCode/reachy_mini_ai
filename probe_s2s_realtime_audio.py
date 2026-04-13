@@ -21,7 +21,7 @@ import wave
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
@@ -29,7 +29,7 @@ import httpx
 try:
     import websockets
 except ImportError:  # pragma: no cover - runtime dependency
-    websockets = None
+    websockets = None  # type: ignore[assignment]
 
 try:
     import sounddevice as sd
@@ -293,7 +293,8 @@ def write_wav_pcm16(path: str, pcm_bytes: bytes, sample_rate: int, channels: int
 
 def _render_live_user_text(state: dict[str, object], text: str, *, final: bool = False) -> None:
     line = f"USER: {text}"
-    width = int(state["width"])
+    width_value = state.get("width", 0)
+    width = width_value if isinstance(width_value, int) else 0
     padded = line + (" " * max(0, width - len(line)))
     if final:
         print(f"\r{padded}", flush=True)
@@ -304,7 +305,8 @@ def _render_live_user_text(state: dict[str, object], text: str, *, final: bool =
 
 
 def _clear_live_user_text(state: dict[str, object]) -> None:
-    width = int(state["width"])
+    width_value = state.get("width", 0)
+    width = width_value if isinstance(width_value, int) else 0
     if width == 0:
         return
     print("\r" + (" " * width) + "\r", end="", flush=True)
@@ -365,10 +367,11 @@ def handle_realtime_event(
 
     if event_type == "response.created":
         _clear_live_user_text(partial_user_text)
-        timing["response_created_at"] = time.perf_counter()
+        response_created_at = time.perf_counter()
+        timing["response_created_at"] = response_created_at
         user_done_at = timing.get("user_done_at")
         if user_done_at is not None:
-            delta_ms = (timing["response_created_at"] - user_done_at) * 1000
+            delta_ms = (response_created_at - user_done_at) * 1000
             print(f"response.created: {delta_ms:.0f} ms", flush=True)
         return
 
@@ -380,10 +383,11 @@ def handle_realtime_event(
             return
         if audio_chunk:
             if timing.get("first_audio_at") is None:
-                timing["first_audio_at"] = time.perf_counter()
+                first_audio_at = time.perf_counter()
+                timing["first_audio_at"] = first_audio_at
                 user_done_at = timing.get("user_done_at")
                 if user_done_at is not None:
-                    delta_ms = (timing["first_audio_at"] - user_done_at) * 1000
+                    delta_ms = (first_audio_at - user_done_at) * 1000
                     print(f"first audio delta: {delta_ms:.0f} ms", flush=True)
             playback.append(audio_chunk)
             received_audio.extend(audio_chunk)
@@ -591,9 +595,9 @@ async def listen_and_play_ws(args: ProbeArguments) -> None:
                 for task in done:
                     with suppress(asyncio.CancelledError):
                         task.result()
-    except websockets.InvalidStatus as exc:  # type: ignore[attr-defined]
+    except websockets.InvalidStatus as exc:
         raise SystemExit(f"Websocket rejected by {ws_url}: {exc}") from exc
-    except websockets.ConnectionClosedError as exc:  # type: ignore[attr-defined]
+    except websockets.ConnectionClosedError as exc:
         raise SystemExit(f"Websocket connection closed unexpectedly: {exc}") from exc
 
     if args.save_output:

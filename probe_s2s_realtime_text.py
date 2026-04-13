@@ -104,7 +104,10 @@ async def allocate_session(session_url: str, authorization: str | None) -> dict[
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(session_url, headers=headers)
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Session allocator returned non-object payload: {payload!r}")
+    return payload
 
 
 async def main() -> None:

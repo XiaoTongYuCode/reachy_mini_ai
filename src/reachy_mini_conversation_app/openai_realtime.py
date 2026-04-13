@@ -1,11 +1,11 @@
 import json
+import time
 import uuid
 import wave
 import base64
 import random
 import asyncio
 import logging
-import time
 from typing import Any, Final, Tuple, Literal, Optional
 from pathlib import Path
 from datetime import datetime
@@ -539,9 +539,8 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                     b64_im = str(b64_im)
                 image_width = tool_result.get("image_width")
                 image_height = tool_result.get("image_height")
-                jpeg_bytes = tool_result.get("jpeg_bytes")
-                if not isinstance(jpeg_bytes, int):
-                    jpeg_bytes = (len(b64_im) * 3) // 4
+                jpeg_bytes_value = tool_result.get("jpeg_bytes")
+                jpeg_bytes = jpeg_bytes_value if isinstance(jpeg_bytes_value, int) else (len(b64_im) * 3) // 4
                 await self.connection.conversation.item.create(
                     item={
                         "type": "message",
