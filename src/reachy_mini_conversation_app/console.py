@@ -16,6 +16,7 @@ import asyncio
 import logging
 from typing import List, Optional
 from pathlib import Path
+from types import MethodType
 
 from fastrtc import AdditionalOutputs, audio_to_float32
 from scipy.signal import resample
@@ -70,6 +71,154 @@ class LocalStream:
         self._instance_path: Optional[str] = instance_path
         self._settings_initialized = False
         self._asyncio_loop = None
+
+    def _configure_local_audio_playback(self) -> None:
+        """Tune the local GStreamer playback path for sparse realtime TTS audio."""
+        if getattr(self._robot.media, "backend", None) != MediaBackend.LOCAL:
+            return
+
+        audio = getattr(self._robot.media, "audio", None)
+        appsrc = getattr(audio, "_appsrc", None) if audio is not None else None
+        pipeline = getattr(audio, "_pipeline_playback", None) if audio is not None else None
+        if appsrc is None or pipeline is None or audio is None:
+            return
+
+        try:
+            import gi
+
+            gi.require_version("Gst", "1.0")
+            from gi.repository import GLib, Gst
+
+            appsrc.set_property("do-timestamp", False)
+            appsrc.set_property("format", Gst.Format.TIME)
+            appsrc.set_property("is-live", True)
+
+            gap_reset_ns = 200 * Gst.MSECOND
+            original_dump_latency = getattr(audio, "_dump_latency", None)
+
+            def _reset_playback_timestamps(audio_self) -> None:
+                audio_self._realtime_next_pts_ns = None
+
+            def _dump_latency_when_armed(audio_self):
+                if not getattr(audio_self, "_playback_latency_probe_armed", False):
+                    return False
+                if callable(original_dump_latency):
+                    original_dump_latency()
+                audio_self._playback_latency_probe_armed = False
+                return False
+
+            def _push_audio_sample_with_timestamps(audio_self, data) -> None:
+                local_appsrc = getattr(audio_self, "_appsrc", None)
+                local_pipeline = getattr(audio_self, "_pipeline_playback", None)
+                if local_appsrc is None or local_pipeline is None:
+                    audio_self.logger.warning(
+                        "AppSrc is not initialized. Call start_playing() first."
+                    )
+                    return
+
+                num_samples = int(data.shape[0])
+                duration_ns = (num_samples * Gst.SECOND) // audio_self.SAMPLE_RATE
+
+                clock = local_pipeline.get_clock()
+                if clock is not None:
+                    running_time_ns = max(0, clock.get_time() - local_pipeline.get_base_time())
+                else:
+                    running_time_ns = 0
+
+                next_pts_ns = getattr(audio_self, "_realtime_next_pts_ns", None)
+                if next_pts_ns is None or running_time_ns > next_pts_ns + gap_reset_ns:
+                    pts_ns = running_time_ns
+                else:
+                    pts_ns = next_pts_ns
+
+                buf = Gst.Buffer.new_wrapped(data.tobytes())
+                buf.pts = pts_ns
+                buf.duration = duration_ns
+                audio_self._realtime_next_pts_ns = pts_ns + duration_ns
+                local_appsrc.push_buffer(buf)
+                if not getattr(audio_self, "_playback_latency_probe_scheduled", False):
+                    audio_self._playback_latency_probe_scheduled = True
+                    audio_self._playback_latency_probe_armed = True
+                    GLib.timeout_add(500, audio_self._dump_latency)
+
+            audio._realtime_next_pts_ns = None
+            audio._playback_latency_probe_armed = False
+            audio._playback_latency_probe_scheduled = False
+            audio._dump_latency = MethodType(_dump_latency_when_armed, audio)
+            audio.reset_realtime_playback_timestamps = MethodType(_reset_playback_timestamps, audio)
+            audio.push_audio_sample = MethodType(_push_audio_sample_with_timestamps, audio)
+            logger.info("Installed timestamped local GStreamer audio playback wrapper")
+        except Exception as exc:
+            logger.warning("Failed to configure local audio playback timing: %s", exc)
+
+    def _tune_started_local_audio_pipeline(self) -> None:
+        """Reduce local playback buffering once the sink chain is realized."""
+        if getattr(self._robot.media, "backend", None) != MediaBackend.LOCAL:
+            return
+
+        audio = getattr(self._robot.media, "audio", None)
+        pipeline = getattr(audio, "_pipeline_playback", None) if audio is not None else None
+        if pipeline is None:
+            return
+
+        try:
+            import gi
+
+            gi.require_version("Gst", "1.0")
+            from gi.repository import Gst
+
+            queue_time_ns = 100_000_000  # 100 ms
+            sink_buffer_us = 50_000  # 50 ms
+            sink_latency_us = 5_000  # 5 ms
+
+            tuned_queues: list[str] = []
+            tuned_sinks: list[str] = []
+
+            iterator = pipeline.iterate_recurse()
+            while True:
+                result, element = iterator.next()
+                if result == Gst.IteratorResult.DONE:
+                    break
+                if result != Gst.IteratorResult.OK:
+                    break
+
+                factory = element.get_factory()
+                factory_name = factory.get_name() if factory is not None else element.get_name()
+
+                if factory_name == "queue":
+                    changed = False
+                    if element.find_property("max-size-time") is not None:
+                        element.set_property("max-size-time", queue_time_ns)
+                        changed = True
+                    if element.find_property("max-size-buffers") is not None:
+                        element.set_property("max-size-buffers", 32)
+                        changed = True
+                    if changed:
+                        tuned_queues.append(element.get_name())
+                    continue
+
+                changed = False
+                if element.find_property("buffer-time") is not None:
+                    element.set_property("buffer-time", sink_buffer_us)
+                    changed = True
+                if element.find_property("latency-time") is not None:
+                    element.set_property("latency-time", sink_latency_us)
+                    changed = True
+                if changed:
+                    tuned_sinks.append(f"{element.get_name()}:{factory_name}")
+
+            if tuned_queues or tuned_sinks:
+                logger.info(
+                    "Tuned local audio pipeline queues=%s sinks=%s "
+                    "(queue_time_ns=%d sink_buffer_us=%d sink_latency_us=%d)",
+                    tuned_queues,
+                    tuned_sinks,
+                    queue_time_ns,
+                    sink_buffer_us,
+                    sink_latency_us,
+                )
+        except Exception as exc:
+            logger.warning("Failed to tune started local audio pipeline: %s", exc)
 
     # ---- Settings UI (only when API key is missing) ----
     def _read_env_lines(self, env_path: Path) -> list[str]:
@@ -378,8 +527,10 @@ class LocalStream:
                 return
 
         # Start media after key is set/available
+        self._configure_local_audio_playback()
         self._robot.media.start_recording()
         self._robot.media.start_playing()
+        self._tune_started_local_audio_pipeline()
         time.sleep(1)  # give some time to the pipelines to start
 
         async def runner() -> None:
@@ -461,6 +612,10 @@ class LocalStream:
                 audio.clear_output_buffer()
             elif hasattr(audio, "clear_player") and callable(audio.clear_player):
                 audio.clear_player()
+            if hasattr(audio, "reset_realtime_playback_timestamps") and callable(
+                audio.reset_realtime_playback_timestamps
+            ):
+                audio.reset_realtime_playback_timestamps()
         self.handler.output_queue = asyncio.Queue()
 
     async def record_loop(self) -> None:
