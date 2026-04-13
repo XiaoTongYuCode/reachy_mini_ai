@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from reachy_mini_conversation_app.audio.speech_tapper import HOP_MS, SwayRollRT
 
 
-MOVEMENT_LATENCY_S = 0.07  # seconds between audio and robot movement
+MOVEMENT_LATENCY_S = 0.05  # seconds between audio and robot movement
 logger = logging.getLogger(__name__)
 
 
@@ -73,10 +73,8 @@ class HeadWobbler:
         while not self._stop_event.is_set():
             queue_ref = self.audio_queue
             try:
-                chunk_generation, sr, chunk = queue_ref.get_nowait()  # (gen, sr, data)
+                chunk_generation, sr, chunk = queue_ref.get(timeout=0.01)  # (gen, sr, data)
             except queue.Empty:
-                # avoid while to never exit
-                time.sleep(MOVEMENT_LATENCY_S)
                 continue
 
             try:

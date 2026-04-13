@@ -17,6 +17,7 @@ import logging
 from typing import List, Optional
 from pathlib import Path
 
+import numpy as np
 from fastrtc import AdditionalOutputs, audio_to_float32
 from scipy.signal import resample
 
@@ -42,6 +43,7 @@ except Exception:  # pragma: no cover - only loaded when settings_app is used
 
 
 logger = logging.getLogger(__name__)
+PLAYBACK_WARMUP_MS = 50
 
 
 class LocalStream:
@@ -218,6 +220,16 @@ class LocalStream:
             pass
         return None
 
+    def _warm_up_audio_playback(self) -> None:
+        """Prime the playback path with a short silent buffer."""
+        try:
+            output_sample_rate = self._robot.media.get_output_audio_samplerate()
+            warmup_samples = max(1, int(output_sample_rate * PLAYBACK_WARMUP_MS / 1000))
+            self._robot.media.push_audio_sample(np.zeros(warmup_samples, dtype=np.float32))
+            logger.info("Warmed up audio playback with %sms silence", PLAYBACK_WARMUP_MS)
+        except Exception as e:
+            logger.warning("Audio playback warmup skipped: %s", e)
+
     def _init_settings_ui_if_needed(self) -> None:
         """Attach minimal settings UI to the settings app.
 
@@ -380,6 +392,7 @@ class LocalStream:
         # Start media after key is set/available
         self._robot.media.start_recording()
         self._robot.media.start_playing()
+        self._warm_up_audio_playback()
         time.sleep(1)  # give some time to the pipelines to start
 
         async def runner() -> None:
