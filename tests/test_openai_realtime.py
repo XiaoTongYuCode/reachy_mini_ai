@@ -764,10 +764,10 @@ async def test_start_up_s2s_gradio_does_not_wait_for_api_key(monkeypatch: Any) -
 
 
 @pytest.mark.asyncio
-async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions(monkeypatch: Any) -> None:
-    """Use the backend default speaker when no profile voice is selected for the s2s LB."""
+async def test_run_realtime_session_omits_voice_for_lb_allocated_sessions(monkeypatch: Any) -> None:
+    """Omit the voice field when no profile voice is selected for the s2s LB."""
     monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
-    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=DEFAULT_VOICE: default)
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=None: default)
     monkeypatch.setattr(rt_mod, "get_tool_specs", lambda: [])
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
     monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
@@ -837,7 +837,7 @@ async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions
     assert session["audio"]["input"]["format"]["rate"] is None
     assert session["audio"]["output"]["format"]["rate"] is None
     output = session["audio"]["output"]
-    assert output["voice"] == DEFAULT_VOICE
+    assert "voice" not in output
 
 
 @pytest.mark.asyncio
@@ -949,6 +949,35 @@ async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(m
     session = captured_update["session"]
     assert session["instructions"] == "new instructions"
     assert session["audio"]["output"]["voice"] == "Serena"
+
+
+@pytest.mark.asyncio
+async def test_apply_personality_omits_voice_when_unset(monkeypatch: Any) -> None:
+    """Live personality updates should omit voice when no profile voice is selected."""
+    monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "new instructions")
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=None: default)
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
+
+    captured_update: dict[str, Any] = {}
+
+    class FakeSession:
+        async def update(self, **kwargs: Any) -> None:
+            captured_update.update(kwargs)
+
+    class FakeConnection:
+        session = FakeSession()
+
+    handler = OpenaiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+    handler.connection = FakeConnection()
+    monkeypatch.setattr(handler, "_restart_session", AsyncMock(return_value=None))
+
+    result = await handler.apply_personality("example")
+
+    assert "restarted realtime session" in result.lower()
+    session = captured_update["session"]
+    assert session["instructions"] == "new instructions"
+    assert "audio" not in session
 
 # ---- Cost calculation tests ----
 

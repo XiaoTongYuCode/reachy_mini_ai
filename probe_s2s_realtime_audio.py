@@ -42,7 +42,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from reachy_mini_conversation_app.config import DEFAULT_VOICE, config
+from reachy_mini_conversation_app.config import config
 from reachy_mini_conversation_app.prompts import get_session_instructions, get_session_voice
 from reachy_mini_conversation_app.tools.core_tools import get_tool_specs
 
@@ -231,7 +231,7 @@ def _session_audio_format_for_provider(rate: int) -> dict[str, object] | None:
     return _maybe_pcm_format(rate)
 
 
-def build_session_update_payload(args: ProbeArguments, instructions: str, voice: str) -> dict[str, object]:
+def build_session_update_payload(args: ProbeArguments, instructions: str, voice: str | None) -> dict[str, object]:
     input_audio: dict[str, object] = {
         "transcription": {"model": "gpt-4o-transcribe", "language": "en"},
         "turn_detection": {"type": "server_vad", "interrupt_response": True},
@@ -240,9 +240,9 @@ def build_session_update_payload(args: ProbeArguments, instructions: str, voice:
     if input_format is not None:
         input_audio["format"] = input_format
 
-    output_audio: dict[str, object] = {
-        "voice": voice,
-    }
+    output_audio: dict[str, object] = {}
+    if voice:
+        output_audio["voice"] = voice
     output_format = _session_audio_format_for_provider(args.recv_rate)
     if output_format is not None:
         output_audio["format"] = output_format
@@ -262,7 +262,7 @@ def build_session_update_payload(args: ProbeArguments, instructions: str, voice:
     }
 
 
-def build_session_update_event(args: ProbeArguments, instructions: str, voice: str) -> str:
+def build_session_update_event(args: ProbeArguments, instructions: str, voice: str | None) -> str:
     return json.dumps(build_session_update_payload(args, instructions, voice))
 
 
@@ -424,7 +424,7 @@ async def listen_and_play_ws(args: ProbeArguments) -> None:
         return
 
     instructions = args.instructions or get_session_instructions()
-    voice = get_session_voice(default=DEFAULT_VOICE)
+    voice = get_session_voice(default=None)
 
     if args.show_prompt:
         print("=== Prompt ===")
@@ -548,7 +548,7 @@ async def listen_and_play_ws(args: ProbeArguments) -> None:
     install_signal_handlers()
     print(f"provider: {config.BACKEND_PROVIDER}")
     print(f"model: {config.OPENAI_MODEL_NAME}")
-    print(f"voice: {voice}")
+    print(f"voice: {voice or '<unset>'}")
     print(f"prompt_chars: {len(instructions)}")
     print(f"tool_count: {len(get_tool_specs())}")
 
