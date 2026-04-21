@@ -1,6 +1,7 @@
 const OPENAI_BACKEND = "openai";
 const GEMINI_BACKEND = "gemini";
 const S2S_BACKEND = "speech-to-speech";
+const DEFAULT_BACKEND = S2S_BACKEND;
 const BACKEND_META = {
   [OPENAI_BACKEND]: {
     label: "OpenAI Realtime",
@@ -67,7 +68,7 @@ function backendCanProceed(status, backend) {
 }
 
 function backendMeta(backend) {
-  return BACKEND_META[backend] || BACKEND_META[OPENAI_BACKEND];
+  return BACKEND_META[backend] || BACKEND_META[DEFAULT_BACKEND];
 }
 
 function formatBackendNote(text) {
@@ -311,13 +312,13 @@ async function init() {
     dance: ["stop_dance"],
     play_emotion: ["stop_emotion"],
   };
-  let selectedBackend = OPENAI_BACKEND;
+  let selectedBackend = DEFAULT_BACKEND;
   let editingCredentials = false;
 
   function setSelectedBackend(backend) {
     selectedBackend = [OPENAI_BACKEND, GEMINI_BACKEND, S2S_BACKEND].includes(backend)
       ? backend
-      : OPENAI_BACKEND;
+      : DEFAULT_BACKEND;
     backendInputs.forEach((radio) => {
       radio.checked = radio.value === selectedBackend;
     });
@@ -327,7 +328,7 @@ async function init() {
   }
 
   function renderCredentialPanels(status) {
-    const persistedBackend = status.backend_provider || OPENAI_BACKEND;
+    const persistedBackend = status.backend_provider || DEFAULT_BACKEND;
     const activeBackend = status.active_backend || persistedBackend;
     const requiresRestart = !!status.requires_restart;
     const meta = backendMeta(selectedBackend);
@@ -384,8 +385,8 @@ async function init() {
   show(personalityPanel, false);
 
   const st = (await waitForStatus()) || {
-    active_backend: OPENAI_BACKEND,
-    backend_provider: OPENAI_BACKEND,
+    active_backend: DEFAULT_BACKEND,
+    backend_provider: DEFAULT_BACKEND,
     has_key: false,
     has_openai_key: false,
     has_gemini_key: false,
@@ -396,7 +397,7 @@ async function init() {
     can_proceed_with_s2s: false,
     requires_restart: false,
   };
-  setSelectedBackend(st.backend_provider || OPENAI_BACKEND);
+  setSelectedBackend(st.backend_provider || DEFAULT_BACKEND);
   statusEl.textContent = "";
   renderCredentialPanels(st);
 
@@ -473,7 +474,7 @@ async function init() {
     }
   });
 
-  if (!(st.can_proceed ?? backendCanProceed(st, st.backend_provider || OPENAI_BACKEND)) || st.requires_restart) {
+  if (!(st.can_proceed ?? backendCanProceed(st, st.backend_provider || DEFAULT_BACKEND)) || st.requires_restart) {
     show(loading, false);
     return;
   }

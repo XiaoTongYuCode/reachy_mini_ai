@@ -47,10 +47,12 @@ def run(
     # Putting these dependencies here makes the dashboard faster to load when the conversation app is installed
     from reachy_mini_conversation_app.moves import MovementManager
     from reachy_mini_conversation_app.config import (
+        S2S_BACKEND,
         GEMINI_BACKEND,
         OPENAI_BACKEND,
         config,
         is_gemini_model,
+        get_backend_label,
         refresh_runtime_config_from_env,
     )
 
@@ -68,6 +70,13 @@ def run(
                 logger.info("Loaded instance configuration from %s", env_path)
         except Exception as e:
             logger.warning("Failed to load instance configuration: %s", e)
+
+    logger.info(
+        "Configured backend provider: %s (%s), model: %s",
+        config.BACKEND_PROVIDER,
+        get_backend_label(config.BACKEND_PROVIDER),
+        config.MODEL_NAME,
+    )
 
     from reachy_mini_conversation_app.console import LocalStream
     from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
@@ -150,12 +159,24 @@ def run(
     if is_gemini_model():
         from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
 
-        logger.info("Using Gemini Live handler for model: %s", config.MODEL_NAME)
+        logger.info(
+            "Using %s via GeminiLiveHandler",
+            get_backend_label(config.BACKEND_PROVIDER),
+        )
         handler = GeminiLiveHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)
     else:
         from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 
-        logger.info("Using OpenAI Realtime handler for model: %s", config.MODEL_NAME)
+        transport_label = (
+            "speech-to-speech session allocator"
+            if config.BACKEND_PROVIDER == S2S_BACKEND
+            else "OpenAI Realtime API"
+        )
+        logger.info(
+            "Using %s via OpenAI-compatible realtime handler (%s)",
+            get_backend_label(config.BACKEND_PROVIDER),
+            transport_label,
+        )
         handler = OpenaiRealtimeHandler(deps, gradio_mode=args.gradio, instance_path=instance_path)  # type: ignore[assignment]
 
     stream_manager: gr.Blocks | LocalStream | None = None

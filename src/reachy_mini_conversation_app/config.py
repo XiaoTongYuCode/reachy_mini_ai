@@ -88,11 +88,16 @@ GEMINI_AVAILABLE_VOICES: list[str] = [
 OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
 S2S_BACKEND = "speech-to-speech"
-DEFAULT_BACKEND_PROVIDER = OPENAI_BACKEND
+DEFAULT_BACKEND_PROVIDER = S2S_BACKEND
 DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
     S2S_BACKEND: "gpt-realtime",
+}
+BACKEND_LABEL_BY_PROVIDER = {
+    OPENAI_BACKEND: "OpenAI Realtime",
+    GEMINI_BACKEND: "Gemini Live",
+    S2S_BACKEND: "Speech-to-speech",
 }
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
@@ -346,6 +351,12 @@ def get_backend_choice(model_name: str | None = None) -> str:
 def get_model_name_for_backend(backend: str) -> str:
     """Return the default model name for a backend selector value."""
     return DEFAULT_MODEL_NAME_BY_BACKEND[_normalize_backend_provider(backend)]
+
+
+def get_backend_label(backend: str | None = None) -> str:
+    """Return a human-readable label for a backend selector value."""
+    normalized_backend = get_backend_choice() if backend is None else _normalize_backend_provider(backend)
+    return BACKEND_LABEL_BY_PROVIDER[normalized_backend]
 
 
 def get_available_voices_for_backend(backend: str | None = None) -> list[str]:
