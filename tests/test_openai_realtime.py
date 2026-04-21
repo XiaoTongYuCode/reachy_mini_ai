@@ -502,7 +502,7 @@ async def test_output_audio_delta_passes_output_sample_rate_to_head_wobbler(monk
         movement_manager=MagicMock(),
         head_wobbler=head_wobbler,
     )
-    handler = OpenaiRealtimeHandler(deps)
+    handler = OpenaiRealtimeHandler(deps, gradio_mode=True)
     handler.client = FakeClient()
 
     start_up = MagicMock()
@@ -512,7 +512,9 @@ async def test_output_audio_delta_passes_output_sample_rate_to_head_wobbler(monk
 
     await handler._run_realtime_session()
 
-    head_wobbler.feed.assert_called_once_with(audio_delta, sample_rate=handler.output_sample_rate)
+    head_wobbler.feed_pcm.assert_called_once()
+    assert head_wobbler.feed_pcm.call_args.args[1] == handler.output_sample_rate
+    head_wobbler.request_reset_after_current_audio.assert_called_once()
 
 
 @pytest.mark.asyncio
