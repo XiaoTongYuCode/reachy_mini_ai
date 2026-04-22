@@ -183,9 +183,7 @@ def run(
         from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 
         transport_label = (
-            "speech-to-speech session allocator"
-            if config.BACKEND_PROVIDER == S2S_BACKEND
-            else "OpenAI Realtime API"
+            "speech-to-speech session allocator" if config.BACKEND_PROVIDER == S2S_BACKEND else "OpenAI Realtime API"
         )
         logger.info(
             "Using %s via OpenAI-compatible realtime handler (%s)",
