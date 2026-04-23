@@ -117,11 +117,7 @@ def _build_openai_compatible_client_from_realtime_url(
     else:
         base_path = path
 
-    connect_query = {
-        key: value
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if key != "model"
-    }
+    connect_query = {key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "model"}
     http_scheme = "https" if scheme in {"wss", "https"} else "http"
     websocket_scheme = "wss" if scheme in {"wss", "https"} else "ws"
     base_url = urlunsplit((http_scheme, parsed.netloc, base_path, "", ""))
@@ -1125,7 +1121,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
         direct_realtime_url = get_s2s_direct_ws_url()
         if direct_realtime_url:
             if get_s2s_session_url():
-                logger.info("S2S_REALTIME_WS_URL is set; bypassing S2S_REALTIME_SESSION_URL and using direct realtime.")
+                logger.info(
+                    "S2S_REALTIME_WS_URL is set; bypassing S2S_REALTIME_SESSION_URL and using direct realtime."
+                )
             client, connect_query = _build_openai_compatible_client_from_realtime_url(
                 direct_realtime_url,
                 resolved_api_key,
