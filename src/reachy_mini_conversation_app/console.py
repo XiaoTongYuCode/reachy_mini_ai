@@ -29,6 +29,9 @@ from reachy_mini_conversation_app.config import (
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     OPENAI_BACKEND,
+    S2S_DIRECT_CONNECTION_MODE,
+    S2S_ALLOCATOR_CONNECTION_MODE,
+    S2S_REALTIME_CONNECTION_MODE_ENV,
     config,
     get_backend_choice,
     get_s2s_session_url,
@@ -37,6 +40,7 @@ from reachy_mini_conversation_app.config import (
     has_s2s_realtime_target,
     get_model_name_for_backend,
     refresh_runtime_config_from_env,
+    get_s2s_selected_connection_mode,
 )
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
@@ -297,7 +301,16 @@ class LocalStream:
 
     def _persist_s2s_direct_connection(self, host: str, port: int) -> None:
         """Persist a direct speech-to-speech websocket target."""
-        self._persist_env_value("S2S_REALTIME_WS_URL", _build_direct_s2s_ws_url(host, port))
+        self._persist_env_values(
+            {
+                S2S_REALTIME_CONNECTION_MODE_ENV: "local",
+                "S2S_REALTIME_WS_URL": _build_direct_s2s_ws_url(host, port),
+            }
+        )
+
+    def _persist_s2s_allocator_connection(self) -> None:
+        """Persist the deployed speech-to-speech allocator mode."""
+        self._persist_env_value(S2S_REALTIME_CONNECTION_MODE_ENV, "deployed")
 
     def _persist_api_key(self, key: str) -> None:
         """Persist OPENAI_API_KEY to environment and instance `.env`."""
@@ -389,8 +402,8 @@ class LocalStream:
             s2s_direct_host, s2s_direct_port = _parse_direct_s2s_target(s2s_ws_url)
             has_s2s_session_url = bool(s2s_session_url)
             has_s2s_ws_url = bool(s2s_ws_url)
-            has_s2s_connection = has_s2s_session_url or has_s2s_ws_url
             s2s_connection_mode = get_s2s_connection_mode()
+            has_s2s_connection = s2s_connection_mode is not None
             can_proceed_with_openai = has_openai_key
             can_proceed_with_gemini = has_gemini_key
             can_proceed_with_s2s = has_s2s_connection
@@ -464,8 +477,8 @@ class LocalStream:
             if backend == GEMINI_BACKEND and api_key:
                 self._persist_gemini_api_key(api_key)
             if backend == S2S_BACKEND:
-                s2s_mode = (payload.s2s_mode or get_s2s_connection_mode() or "direct").strip().lower()
-                if s2s_mode == "direct":
+                s2s_mode = (payload.s2s_mode or get_s2s_selected_connection_mode()).strip().lower()
+                if s2s_mode in {S2S_DIRECT_CONNECTION_MODE, "local"}:
                     host = (payload.s2s_host or "").strip()
                     if not host:
                         return JSONResponse({"ok": False, "error": "empty_s2s_host"}, status_code=400)
@@ -477,10 +490,10 @@ class LocalStream:
                         return JSONResponse({"ok": False, "error": "invalid_s2s_port"}, status_code=400)
 
                     self._persist_s2s_direct_connection(host, port)
-                elif s2s_mode == "allocator":
-                    self._clear_env_values(("S2S_REALTIME_WS_URL",))
+                elif s2s_mode in {S2S_ALLOCATOR_CONNECTION_MODE, "deployed"}:
                     if not bool(get_s2s_session_url()):
                         return JSONResponse({"ok": False, "error": "missing_s2s_session_url"}, status_code=400)
+                    self._persist_s2s_allocator_connection()
                 else:
                     return JSONResponse({"ok": False, "error": "invalid_s2s_mode"}, status_code=400)
 

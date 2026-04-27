@@ -999,6 +999,7 @@ async def test_build_realtime_client_uses_direct_s2s_ws_url(monkeypatch: Any) ->
     monkeypatch.setattr(rt_mod, "AsyncOpenAI", FakeClient)
     monkeypatch.setattr(rt_mod.httpx, "AsyncClient", _unexpected_async_client)
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
     monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
     monkeypatch.setattr(
         config,
@@ -1015,6 +1016,60 @@ async def test_build_realtime_client_uses_direct_s2s_ws_url(monkeypatch: Any) ->
     assert captured_client_kwargs["base_url"] == "http://127.0.0.1:8765/v1"
     assert captured_client_kwargs["websocket_base_url"] == "ws://127.0.0.1:8765/v1"
     assert handler._realtime_connect_query == {"session_token": "abc123"}
+
+
+@pytest.mark.asyncio
+async def test_build_realtime_client_uses_deployed_mode_even_when_direct_s2s_ws_url_is_saved(
+    monkeypatch: Any,
+) -> None:
+    """Explicit deployed mode should let .env recover from a stale local websocket URL."""
+    captured_client_kwargs: dict[str, Any] = {}
+    requested_session_urls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_client_kwargs.update(kwargs)
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, str]:
+            return {
+                "session_id": "session-123",
+                "connect_url": "wss://s2s.example.test/v1/realtime?session_token=allocated",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *_args: Any) -> bool:
+            return False
+
+        async def post(self, url: str) -> FakeResponse:
+            requested_session_urls.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr(rt_mod, "AsyncOpenAI", FakeClient)
+    monkeypatch.setattr(rt_mod.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", "allocator")
+    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
+
+    handler = OpenaiRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+
+    client = await handler._build_realtime_client()
+
+    assert client is not None
+    assert requested_session_urls == ["https://lb.example.test/session"]
+    assert captured_client_kwargs["base_url"] == "https://s2s.example.test/v1"
+    assert captured_client_kwargs["websocket_base_url"] == "wss://s2s.example.test/v1"
+    assert handler._realtime_connect_query == {"session_token": "allocated"}
 
 
 @pytest.mark.asyncio

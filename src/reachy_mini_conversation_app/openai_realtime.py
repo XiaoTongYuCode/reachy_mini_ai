@@ -42,6 +42,7 @@ from reachy_mini_conversation_app.config import (
     get_s2s_direct_ws_url,
     get_default_voice_for_backend,
     get_available_voices_for_backend,
+    get_s2s_selected_connection_mode,
 )
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, get_tool_specs
@@ -1118,12 +1119,11 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
                 resolved_api_key = "DUMMY"
             return AsyncOpenAI(api_key=resolved_api_key)
 
+        selected_connection_mode = get_s2s_selected_connection_mode()
         direct_realtime_url = get_s2s_direct_ws_url()
-        if direct_realtime_url:
-            if get_s2s_session_url():
-                logger.info(
-                    "S2S_REALTIME_WS_URL is set; bypassing S2S_REALTIME_SESSION_URL and using direct realtime."
-                )
+        if selected_connection_mode == "direct":
+            if not direct_realtime_url:
+                raise RuntimeError("S2S_REALTIME_WS_URL must be set when S2S_REALTIME_CONNECTION_MODE=local")
             client, connect_query = _build_openai_compatible_client_from_realtime_url(
                 direct_realtime_url,
                 resolved_api_key,
@@ -1134,9 +1134,9 @@ class OpenaiRealtimeHandler(AsyncStreamHandler):
 
         session_url = get_s2s_session_url()
         if not session_url:
-            raise RuntimeError(
-                f"Either S2S_REALTIME_SESSION_URL or S2S_REALTIME_WS_URL must be set when BACKEND_PROVIDER={S2S_BACKEND}"
-            )
+            raise RuntimeError("S2S_REALTIME_SESSION_URL must be set when S2S_REALTIME_CONNECTION_MODE=deployed")
+        if direct_realtime_url:
+            logger.info("S2S_REALTIME_CONNECTION_MODE=deployed; ignoring S2S_REALTIME_WS_URL.")
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
             response = await http_client.post(session_url)

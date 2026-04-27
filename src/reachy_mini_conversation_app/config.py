@@ -89,6 +89,9 @@ OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
 S2S_BACKEND = "speech-to-speech"
 DEFAULT_BACKEND_PROVIDER = S2S_BACKEND
+S2S_REALTIME_CONNECTION_MODE_ENV = "S2S_REALTIME_CONNECTION_MODE"
+S2S_DIRECT_CONNECTION_MODE = "direct"
+S2S_ALLOCATOR_CONNECTION_MODE = "allocator"
 DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
@@ -164,6 +167,27 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
     logger.warning("Invalid boolean value for %s=%r, using default=%s", name, raw, default)
     return default
+
+
+def _normalize_s2s_connection_mode(value: str | None) -> str | None:
+    """Normalize the speech-to-speech connection mode, if explicitly configured."""
+    candidate = (value or "").strip().lower().replace("-", "_")
+    if not candidate:
+        return None
+
+    normalized = {
+        "local": S2S_DIRECT_CONNECTION_MODE,
+        "direct": S2S_DIRECT_CONNECTION_MODE,
+        "deployed": S2S_ALLOCATOR_CONNECTION_MODE,
+        "allocator": S2S_ALLOCATOR_CONNECTION_MODE,
+    }.get(candidate)
+    if normalized is None:
+        logger.warning(
+            "Invalid %s=%r. Expected direct/local or allocator/deployed.",
+            S2S_REALTIME_CONNECTION_MODE_ENV,
+            value,
+        )
+    return normalized
 
 
 def _collect_profile_names(profiles_root: Path) -> set[str]:
@@ -242,6 +266,7 @@ class Config:
         os.getenv("MODEL_NAME"),
     )
     MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
+    S2S_REALTIME_CONNECTION_MODE = _normalize_s2s_connection_mode(os.getenv(S2S_REALTIME_CONNECTION_MODE_ENV))
     S2S_REALTIME_SESSION_URL = os.getenv("S2S_REALTIME_SESSION_URL")
     S2S_REALTIME_WS_URL = os.getenv("S2S_REALTIME_WS_URL")
     HF_HOME = os.getenv("HF_HOME", "./cache")
@@ -249,9 +274,10 @@ class Config:
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
 
     logger.debug(
-        "Backend provider: %s, Model: %s, S2S session URL set: %s, S2S direct URL set: %s, HF_HOME: %s, Vision Model: %s",
+        "Backend provider: %s, Model: %s, S2S mode: %s, S2S session URL set: %s, S2S direct URL set: %s, HF_HOME: %s, Vision Model: %s",
         BACKEND_PROVIDER,
         MODEL_NAME,
+        S2S_REALTIME_CONNECTION_MODE or "auto",
         bool(S2S_REALTIME_SESSION_URL and S2S_REALTIME_SESSION_URL.strip()),
         bool(S2S_REALTIME_WS_URL and S2S_REALTIME_WS_URL.strip()),
         HF_HOME,
@@ -340,6 +366,7 @@ def refresh_runtime_config_from_env() -> None:
         os.getenv("MODEL_NAME"),
     )
     config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
+    config.S2S_REALTIME_CONNECTION_MODE = _normalize_s2s_connection_mode(os.getenv(S2S_REALTIME_CONNECTION_MODE_ENV))
     config.S2S_REALTIME_SESSION_URL = os.getenv("S2S_REALTIME_SESSION_URL")
     config.S2S_REALTIME_WS_URL = os.getenv("S2S_REALTIME_WS_URL")
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
@@ -391,12 +418,30 @@ def get_s2s_direct_ws_url() -> str | None:
     return value or None
 
 
-def get_s2s_connection_mode() -> str | None:
-    """Return the configured speech-to-speech connection mode."""
+def get_s2s_selected_connection_mode() -> str:
+    """Return the selected speech-to-speech mode, falling back to legacy URL inference."""
+    configured_mode = _normalize_s2s_connection_mode(getattr(config, "S2S_REALTIME_CONNECTION_MODE", None))
+    if configured_mode is not None:
+        return configured_mode
     if get_s2s_direct_ws_url():
-        return "direct"
+        return S2S_DIRECT_CONNECTION_MODE
     if get_s2s_session_url():
-        return "allocator"
+        return S2S_ALLOCATOR_CONNECTION_MODE
+    return S2S_DIRECT_CONNECTION_MODE
+
+
+def get_s2s_connection_mode() -> str | None:
+    """Return the selected speech-to-speech mode only when its target is configured."""
+    configured_mode = _normalize_s2s_connection_mode(getattr(config, "S2S_REALTIME_CONNECTION_MODE", None))
+    if configured_mode == S2S_DIRECT_CONNECTION_MODE:
+        return S2S_DIRECT_CONNECTION_MODE if get_s2s_direct_ws_url() else None
+    if configured_mode == S2S_ALLOCATOR_CONNECTION_MODE:
+        return S2S_ALLOCATOR_CONNECTION_MODE if get_s2s_session_url() else None
+
+    if get_s2s_direct_ws_url():
+        return S2S_DIRECT_CONNECTION_MODE
+    if get_s2s_session_url():
+        return S2S_ALLOCATOR_CONNECTION_MODE
     return None
 
 

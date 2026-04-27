@@ -233,10 +233,12 @@ def test_backend_config_persists_direct_s2s_selection_and_status(
     """Settings API should persist a direct speech-to-speech websocket target."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
     monkeypatch.setattr(config, "MODEL_NAME", "gpt-realtime")
+    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
     monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", None)
     monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", None)
     monkeypatch.setenv("BACKEND_PROVIDER", "openai")
     monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
+    monkeypatch.delenv("S2S_REALTIME_CONNECTION_MODE", raising=False)
     monkeypatch.delenv("S2S_REALTIME_SESSION_URL", raising=False)
     monkeypatch.delenv("S2S_REALTIME_WS_URL", raising=False)
 
@@ -270,14 +272,15 @@ def test_backend_config_persists_direct_s2s_selection_and_status(
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "BACKEND_PROVIDER=speech-to-speech" in env_text
+    assert "S2S_REALTIME_CONNECTION_MODE=local" in env_text
     assert "S2S_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
 
 
-def test_backend_config_allocator_clears_direct_s2s_ws_url(
+def test_backend_config_allocator_persists_deployed_mode_without_clearing_direct_s2s_ws_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Saving the deployed speech-to-speech mode should clear any direct websocket override."""
+    """Saving deployed mode should make env selection explicit without deleting the saved local URL."""
     env_path = tmp_path / ".env"
     env_path.write_text(
         "BACKEND_PROVIDER=speech-to-speech\n"
@@ -288,10 +291,12 @@ def test_backend_config_allocator_clears_direct_s2s_ws_url(
 
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
     monkeypatch.setattr(config, "MODEL_NAME", "gpt-realtime")
+    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
     monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
     monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
     monkeypatch.setenv("BACKEND_PROVIDER", "speech-to-speech")
     monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
+    monkeypatch.delenv("S2S_REALTIME_CONNECTION_MODE", raising=False)
     monkeypatch.setenv("S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
     monkeypatch.setenv("S2S_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
 
@@ -313,12 +318,13 @@ def test_backend_config_allocator_clears_direct_s2s_ws_url(
     data = response.json()
     assert data["ok"] is True
     assert data["has_s2s_session_url"] is True
-    assert data["has_s2s_ws_url"] is False
+    assert data["has_s2s_ws_url"] is True
     assert data["s2s_connection_mode"] == "allocator"
 
     env_text = env_path.read_text(encoding="utf-8")
+    assert "S2S_REALTIME_CONNECTION_MODE=deployed" in env_text
     assert "S2S_REALTIME_SESSION_URL=https://lb.example.test/session" in env_text
-    assert "S2S_REALTIME_WS_URL=" not in env_text
+    assert "S2S_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
 
 
 def test_status_reports_direct_s2s_ws_url_as_ready(
@@ -327,6 +333,7 @@ def test_status_reports_direct_s2s_ws_url_as_ready(
 ) -> None:
     """Settings API should treat a direct speech-to-speech websocket as a valid configuration."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
     monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", None)
     monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
 
