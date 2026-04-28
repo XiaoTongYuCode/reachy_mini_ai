@@ -40,7 +40,7 @@ const BACKEND_META = {
     changeButton: "Edit connection",
     readyTitle: "Speech-to-speech ready",
     readyCopy: "Speech-to-speech is configured. You can jump straight to personalities.",
-    formCopy: "Choose whether Reachy should use the Hugging Face server or connect to your own local speech-to-speech instance.",
+    formCopy: "Choose where Reachy should connect for speech-to-speech.",
     requiredCredentialsCopy: "Set up the speech-to-speech connection details before switching.",
     note: "Speech-to-speech can use the Hugging Face server or your own local realtime websocket.",
   },
@@ -356,8 +356,8 @@ async function init() {
     const customHost = s2sHostPreset.value === "custom";
     show(s2sDirectFields, localMode);
     show(s2sHostCustomWrap, localMode && customHost);
-    show(s2sModeCopy, !localMode);
-    s2sModeCopy.textContent = localMode ? "" : "Use the built-in Hugging Face server.";
+    show(s2sModeCopy, false);
+    s2sModeCopy.textContent = "";
 
     if (!localMode) {
       setStatusMessage(s2sPreview, "Speech-to-speech will use the Hugging Face server.");
