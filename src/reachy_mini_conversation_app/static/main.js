@@ -1,9 +1,9 @@
 const OPENAI_BACKEND = "openai";
 const GEMINI_BACKEND = "gemini";
-const S2S_BACKEND = "speech-to-speech";
-const DEFAULT_BACKEND = S2S_BACKEND;
-const S2S_DEFAULT_HOST = "localhost";
-const S2S_DEFAULT_PORT = 8765;
+const HF_BACKEND = "huggingface";
+const DEFAULT_BACKEND = HF_BACKEND;
+const HF_DEFAULT_HOST = "localhost";
+const HF_DEFAULT_PORT = 8765;
 const BACKEND_META = {
   [OPENAI_BACKEND]: {
     label: "OpenAI Realtime",
@@ -31,24 +31,24 @@ const BACKEND_META = {
     requiredCredentialsCopy: "Gemini Live requires your own GEMINI_API_KEY before you can switch.",
     note: "OpenAI Realtime requires OPENAI_API_KEY. Gemini Live needs GEMINI_API_KEY.",
   },
-  [S2S_BACKEND]: {
-    label: "Speech-to-speech",
-    formTitle: "Configure speech-to-speech",
+  [HF_BACKEND]: {
+    label: "Hugging Face",
+    formTitle: "Configure Hugging Face",
     inputLabel: "",
     placeholder: "",
     saveButton: "Save connection",
     changeButton: "Edit connection",
-    readyTitle: "Speech-to-speech ready",
-    readyCopy: "Speech-to-speech is configured. You can jump straight to personalities.",
-    formCopy: "Choose where Reachy should connect for speech-to-speech.",
-    requiredCredentialsCopy: "Set up the speech-to-speech connection details before switching.",
-    note: "Speech-to-speech can use the Hugging Face server or your own local realtime websocket.",
+    readyTitle: "Hugging Face ready",
+    readyCopy: "Hugging Face is configured. You can jump straight to personalities.",
+    formCopy: "Choose where Reachy should connect for Hugging Face.",
+    requiredCredentialsCopy: "Set up the Hugging Face connection details before switching.",
+    note: "Hugging Face can use the built-in server or your own local realtime websocket.",
   },
 };
 
 function backendHasCredentials(status, backend) {
   if (backend === GEMINI_BACKEND) return !!status.has_gemini_key;
-  if (backend === S2S_BACKEND) return !!(status.has_s2s_connection ?? (status.has_s2s_session_url || status.has_s2s_ws_url));
+  if (backend === HF_BACKEND) return !!(status.has_hf_connection ?? (status.has_hf_session_url || status.has_hf_ws_url));
   return !!status.has_openai_key;
 }
 
@@ -58,9 +58,9 @@ function backendCanProceed(status, backend) {
       ? !!status.can_proceed_with_gemini
       : backendHasCredentials(status, backend);
   }
-  if (backend === S2S_BACKEND) {
-    return status.can_proceed_with_s2s !== undefined
-      ? !!status.can_proceed_with_s2s
+  if (backend === HF_BACKEND) {
+    return status.can_proceed_with_hf !== undefined
+      ? !!status.can_proceed_with_hf
       : backendHasCredentials(status, backend);
   }
   return status.can_proceed_with_openai !== undefined
@@ -75,7 +75,7 @@ function backendMeta(backend) {
 function formatBackendNote(text) {
   return text
     .replace("GEMINI_API_KEY", "<code>GEMINI_API_KEY</code>")
-    .replace("S2S_REALTIME_WS_URL", "<code>S2S_REALTIME_WS_URL</code>");
+    .replace("HF_REALTIME_WS_URL", "<code>HF_REALTIME_WS_URL</code>");
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -139,12 +139,12 @@ async function validateKey(key) {
   return data;
 }
 
-async function saveBackendConfig(backend, { key = "", s2sMode = "", s2sHost = "", s2sPort = null } = {}) {
+async function saveBackendConfig(backend, { key = "", hfMode = "", hfHost = "", hfPort = null } = {}) {
   const body = { backend, api_key: key };
-  if (backend === S2S_BACKEND) {
-    if (s2sMode) body.s2s_mode = s2sMode;
-    if (s2sHost) body.s2s_host = s2sHost;
-    if (s2sPort !== null && s2sPort !== undefined) body.s2s_port = s2sPort;
+  if (backend === HF_BACKEND) {
+    if (hfMode) body.hf_mode = hfMode;
+    if (hfHost) body.hf_host = hfHost;
+    if (hfPort !== null && hfPort !== undefined) body.hf_port = hfPort;
   }
   const resp = await fetch("/backend_config", {
     method: "POST",
@@ -277,19 +277,19 @@ function setStatusMessage(el, text, tone = "") {
   el.setAttribute("aria-atomic", "true");
 }
 
-function describeS2SConfiguration(status) {
-  if (status.s2s_connection_mode === "local") {
-    const host = status.s2s_direct_host || S2S_DEFAULT_HOST;
-    const port = status.s2s_direct_port || S2S_DEFAULT_PORT;
-    return `Speech-to-speech will connect directly to ${host}:${port}.`;
+function describeHFConfiguration(status) {
+  if (status.hf_connection_mode === "local") {
+    const host = status.hf_direct_host || HF_DEFAULT_HOST;
+    const port = status.hf_direct_port || HF_DEFAULT_PORT;
+    return `Hugging Face will connect directly to ${host}:${port}.`;
   }
-  if (status.has_s2s_session_url) {
-    return "Speech-to-speech will use the Hugging Face server.";
+  if (status.has_hf_session_url) {
+    return "Hugging Face will use the built-in server.";
   }
   return "Choose the Hugging Face server or a local realtime endpoint.";
 }
 
-function isLocalS2SHost(host) {
+function isLocalHFHost(host) {
   return !host || host === "localhost" || host === "127.0.0.1";
 }
 
@@ -315,14 +315,14 @@ async function init() {
   const saveBtn = document.getElementById("save-btn");
   const changeKeyBtn = document.getElementById("change-key-btn");
   const input = document.getElementById("api-key");
-  const s2sFields = document.getElementById("s2s-fields");
-  const s2sMode = document.getElementById("s2s-mode");
-  const s2sDirectFields = document.getElementById("s2s-direct-fields");
-  const s2sHostPreset = document.getElementById("s2s-host-preset");
-  const s2sHostCustomWrap = document.getElementById("s2s-host-custom-wrap");
-  const s2sHostCustom = document.getElementById("s2s-host-custom");
-  const s2sPort = document.getElementById("s2s-port");
-  const s2sPreview = document.getElementById("s2s-preview");
+  const hfFields = document.getElementById("hf-fields");
+  const hfMode = document.getElementById("hf-mode");
+  const hfDirectFields = document.getElementById("hf-direct-fields");
+  const hfHostPreset = document.getElementById("hf-host-preset");
+  const hfHostCustomWrap = document.getElementById("hf-host-custom-wrap");
+  const hfHostCustom = document.getElementById("hf-host-custom");
+  const hfPort = document.getElementById("hf-port");
+  const hfPreview = document.getElementById("hf-preview");
 
   // Personality elements
   const pSelect = document.getElementById("personality-select");
@@ -346,46 +346,46 @@ async function init() {
   let selectedBackend = DEFAULT_BACKEND;
   let editingCredentials = false;
 
-  function resolveS2SHost() {
-    return s2sHostPreset.value === "custom" ? s2sHostCustom.value.trim() : S2S_DEFAULT_HOST;
+  function resolveHFHost() {
+    return hfHostPreset.value === "custom" ? hfHostCustom.value.trim() : HF_DEFAULT_HOST;
   }
 
-  function updateS2SControls() {
-    const localMode = s2sMode.value !== "deployed";
-    const customHost = s2sHostPreset.value === "custom";
-    show(s2sDirectFields, localMode);
-    show(s2sHostCustomWrap, localMode && customHost);
+  function updateHFControls() {
+    const localMode = hfMode.value !== "deployed";
+    const customHost = hfHostPreset.value === "custom";
+    show(hfDirectFields, localMode);
+    show(hfHostCustomWrap, localMode && customHost);
 
     if (!localMode) {
-      setStatusMessage(s2sPreview, "Speech-to-speech will use the Hugging Face server.");
+      setStatusMessage(hfPreview, "Hugging Face will use the built-in server.");
       return;
     }
 
-    const host = resolveS2SHost() || "<host>";
-    const port = (s2sPort.value || String(S2S_DEFAULT_PORT)).trim();
-    setStatusMessage(s2sPreview, `Will save ws://${host}:${port}/v1/realtime`);
+    const host = resolveHFHost() || "<host>";
+    const port = (hfPort.value || String(HF_DEFAULT_PORT)).trim();
+    setStatusMessage(hfPreview, `Will save ws://${host}:${port}/v1/realtime`);
   }
 
-  function populateS2SFields(status) {
-    const mode = status.s2s_connection_mode
-      || (status.has_s2s_session_url ? "deployed" : "local");
-    const existingHost = status.s2s_direct_host || S2S_DEFAULT_HOST;
-    const existingPort = status.s2s_direct_port || S2S_DEFAULT_PORT;
+  function populateHFFields(status) {
+    const mode = status.hf_connection_mode
+      || (status.has_hf_session_url ? "deployed" : "local");
+    const existingHost = status.hf_direct_host || HF_DEFAULT_HOST;
+    const existingPort = status.hf_direct_port || HF_DEFAULT_PORT;
 
-    s2sMode.value = mode;
-    if (isLocalS2SHost(existingHost)) {
-      s2sHostPreset.value = "localhost";
-      s2sHostCustom.value = "";
+    hfMode.value = mode;
+    if (isLocalHFHost(existingHost)) {
+      hfHostPreset.value = "localhost";
+      hfHostCustom.value = "";
     } else {
-      s2sHostPreset.value = "custom";
-      s2sHostCustom.value = existingHost;
+      hfHostPreset.value = "custom";
+      hfHostCustom.value = existingHost;
     }
-    s2sPort.value = String(existingPort);
-    updateS2SControls();
+    hfPort.value = String(existingPort);
+    updateHFControls();
   }
 
   function setSelectedBackend(backend) {
-    selectedBackend = [OPENAI_BACKEND, GEMINI_BACKEND, S2S_BACKEND].includes(backend)
+    selectedBackend = [OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND].includes(backend)
       ? backend
       : DEFAULT_BACKEND;
     backendInputs.forEach((radio) => {
@@ -405,16 +405,16 @@ async function init() {
     const selectedMatchesPersisted = selectedBackend === persistedBackend;
     const selectedMatchesActive = selectedBackend === activeBackend;
     const usesApiKeyForm = selectedBackend === OPENAI_BACKEND || selectedBackend === GEMINI_BACKEND;
-    const usesS2SForm = selectedBackend === S2S_BACKEND;
-    const supportsForm = usesApiKeyForm || usesS2SForm;
+    const usesHFForm = selectedBackend === HF_BACKEND;
+    const supportsForm = usesApiKeyForm || usesHFForm;
 
     backendChip.textContent = selectedBackend === persistedBackend ? "Saved" : "Selected";
     backendNote.innerHTML = formatBackendNote(meta.note);
 
     configuredTitle.textContent = meta.readyTitle;
-    configuredCopy.textContent = usesS2SForm ? describeS2SConfiguration(status) : meta.readyCopy;
+    configuredCopy.textContent = usesHFForm ? describeHFConfiguration(status) : meta.readyCopy;
     formTitle.textContent = meta.formTitle;
-    formCopy.textContent = usesS2SForm
+    formCopy.textContent = usesHFForm
       ? meta.formCopy
       : canProceedWithSelectedBackend
         ? meta.formCopy
@@ -427,8 +427,8 @@ async function init() {
     show(configuredPanel, canProceedWithSelectedBackend && !editingCredentials);
     show(formPanel, supportsForm && (editingCredentials || !canProceedWithSelectedBackend));
     show(apiKeyFields, usesApiKeyForm);
-    show(s2sFields, usesS2SForm);
-    if (usesS2SForm) updateS2SControls();
+    show(hfFields, usesHFForm);
+    if (usesHFForm) updateHFControls();
     show(changeKeyBtn, supportsForm && canProceedWithSelectedBackend && !editingCredentials);
     show(
       backendSaveBtn,
@@ -468,19 +468,19 @@ async function init() {
     has_key: false,
     has_openai_key: false,
     has_gemini_key: false,
-    has_s2s_session_url: false,
-    has_s2s_ws_url: false,
-    has_s2s_connection: false,
-    s2s_connection_mode: "local",
-    s2s_direct_host: S2S_DEFAULT_HOST,
-    s2s_direct_port: S2S_DEFAULT_PORT,
+    has_hf_session_url: false,
+    has_hf_ws_url: false,
+    has_hf_connection: false,
+    hf_connection_mode: "local",
+    hf_direct_host: HF_DEFAULT_HOST,
+    hf_direct_port: HF_DEFAULT_PORT,
     can_proceed: false,
     can_proceed_with_openai: false,
     can_proceed_with_gemini: false,
-    can_proceed_with_s2s: false,
+    can_proceed_with_hf: false,
     requires_restart: false,
   };
-  populateS2SFields(st);
+  populateHFFields(st);
   setSelectedBackend(st.backend_provider || DEFAULT_BACKEND);
   statusEl.textContent = "";
   renderCredentialPanels(st);
@@ -497,22 +497,22 @@ async function init() {
   input.addEventListener("input", () => {
     input.classList.remove("error");
   });
-  s2sHostCustom.addEventListener("input", () => {
-    s2sHostCustom.classList.remove("error");
-    updateS2SControls();
+  hfHostCustom.addEventListener("input", () => {
+    hfHostCustom.classList.remove("error");
+    updateHFControls();
   });
-  s2sPort.addEventListener("input", () => {
-    s2sPort.classList.remove("error");
-    updateS2SControls();
+  hfPort.addEventListener("input", () => {
+    hfPort.classList.remove("error");
+    updateHFControls();
   });
-  s2sMode.addEventListener("change", () => {
-    s2sHostCustom.classList.remove("error");
-    s2sPort.classList.remove("error");
-    updateS2SControls();
+  hfMode.addEventListener("change", () => {
+    hfHostCustom.classList.remove("error");
+    hfPort.classList.remove("error");
+    updateHFControls();
   });
-  s2sHostPreset.addEventListener("change", () => {
-    s2sHostCustom.classList.remove("error");
-    updateS2SControls();
+  hfHostPreset.addEventListener("change", () => {
+    hfHostCustom.classList.remove("error");
+    updateHFControls();
   });
 
   backendInputs.forEach((radio) => {
@@ -536,54 +536,54 @@ async function init() {
   });
 
   saveBtn.addEventListener("click", async () => {
-    if (selectedBackend === S2S_BACKEND) {
-      const localMode = s2sMode.value !== "deployed";
+    if (selectedBackend === HF_BACKEND) {
+      const localMode = hfMode.value !== "deployed";
       setStatusMessage(statusEl, "Saving connection...");
-      s2sHostCustom.classList.remove("error");
-      s2sPort.classList.remove("error");
+      hfHostCustom.classList.remove("error");
+      hfPort.classList.remove("error");
 
       try {
         if (localMode) {
-          const host = resolveS2SHost();
-          const port = Number.parseInt((s2sPort.value || "").trim(), 10);
+          const host = resolveHFHost();
+          const port = Number.parseInt((hfPort.value || "").trim(), 10);
           if (!host) {
-            s2sHostCustom.classList.add("error");
+            hfHostCustom.classList.add("error");
             setStatusMessage(statusEl, "Enter a valid host or IP address.", "warn");
             return;
           }
           if (!Number.isInteger(port) || port < 1 || port > 65535) {
-            s2sPort.classList.add("error");
+            hfPort.classList.add("error");
             setStatusMessage(statusEl, "Enter a valid port between 1 and 65535.", "warn");
             return;
           }
 
           await saveBackendConfig(selectedBackend, {
-            s2sMode: "local",
-            s2sHost: host,
-            s2sPort: port,
+            hfMode: "local",
+            hfHost: host,
+            hfPort: port,
           });
         } else {
           await saveBackendConfig(selectedBackend, {
-            s2sMode: "deployed",
+            hfMode: "deployed",
           });
         }
         setStatusMessage(statusEl, "Saved. Reloading…", "ok");
         window.location.reload();
       } catch (e) {
-        if (e.message === "missing_s2s_session_url") {
+        if (e.message === "missing_hf_session_url") {
           setStatusMessage(
             statusEl,
             "The built-in Hugging Face server URL is unavailable. Restart the app and try again.",
             "error",
           );
-        } else if (e.message === "empty_s2s_host" || e.message === "invalid_s2s_host") {
-          s2sHostCustom.classList.add("error");
+        } else if (e.message === "empty_hf_host" || e.message === "invalid_hf_host") {
+          hfHostCustom.classList.add("error");
           setStatusMessage(statusEl, "Enter a valid host or IP address.", "error");
-        } else if (e.message === "invalid_s2s_port") {
-          s2sPort.classList.add("error");
+        } else if (e.message === "invalid_hf_port") {
+          hfPort.classList.add("error");
           setStatusMessage(statusEl, "Enter a valid port between 1 and 65535.", "error");
         } else {
-          setStatusMessage(statusEl, "Failed to save the speech-to-speech connection.", "error");
+          setStatusMessage(statusEl, "Failed to save the Hugging Face connection.", "error");
         }
       }
       return;

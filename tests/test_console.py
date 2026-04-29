@@ -226,21 +226,21 @@ def test_backend_config_preserves_explicit_model_override_when_saving_key(
     assert "OPENAI_API_KEY=openai-test-key" in env_text
 
 
-def test_backend_config_persists_local_s2s_selection_and_status(
+def test_backend_config_persists_local_hf_selection_and_status(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Settings API should persist a direct speech-to-speech websocket target."""
+    """Settings API should persist a direct Hugging Face websocket target."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
     monkeypatch.setattr(config, "MODEL_NAME", "gpt-realtime")
-    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", None)
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", None)
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", None)
+    monkeypatch.setattr(config, "HF_REALTIME_WS_URL", None)
     monkeypatch.setenv("BACKEND_PROVIDER", "openai")
     monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
-    monkeypatch.delenv("S2S_REALTIME_CONNECTION_MODE", raising=False)
-    monkeypatch.delenv("S2S_REALTIME_SESSION_URL", raising=False)
-    monkeypatch.delenv("S2S_REALTIME_WS_URL", raising=False)
+    monkeypatch.delenv("HF_REALTIME_CONNECTION_MODE", raising=False)
+    monkeypatch.delenv("HF_REALTIME_SESSION_URL", raising=False)
+    monkeypatch.delenv("HF_REALTIME_WS_URL", raising=False)
 
     app = FastAPI()
     robot = SimpleNamespace(media=SimpleNamespace(audio=None, backend=None))
@@ -251,54 +251,54 @@ def test_backend_config_persists_local_s2s_selection_and_status(
     response = client.post(
         "/backend_config",
         json={
-            "backend": "speech-to-speech",
-            "s2s_mode": "local",
-            "s2s_host": "localhost",
-            "s2s_port": 8765,
+            "backend": "huggingface",
+            "hf_mode": "local",
+            "hf_host": "localhost",
+            "hf_port": 8765,
         },
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert data["backend_provider"] == "speech-to-speech"
+    assert data["backend_provider"] == "huggingface"
     assert data["active_backend"] == "openai"
-    assert data["has_s2s_ws_url"] is True
-    assert data["has_s2s_connection"] is True
-    assert data["s2s_connection_mode"] == "local"
-    assert data["s2s_direct_host"] == "localhost"
-    assert data["s2s_direct_port"] == 8765
+    assert data["has_hf_ws_url"] is True
+    assert data["has_hf_connection"] is True
+    assert data["hf_connection_mode"] == "local"
+    assert data["hf_direct_host"] == "localhost"
+    assert data["hf_direct_port"] == 8765
     assert data["requires_restart"] is True
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
-    assert "BACKEND_PROVIDER=speech-to-speech" in env_text
-    assert "S2S_REALTIME_CONNECTION_MODE=local" in env_text
-    assert "S2S_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
+    assert "BACKEND_PROVIDER=huggingface" in env_text
+    assert "HF_REALTIME_CONNECTION_MODE=local" in env_text
+    assert "HF_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
 
 
-def test_backend_config_persists_deployed_mode_without_clearing_local_s2s_ws_url(
+def test_backend_config_persists_deployed_mode_without_clearing_local_hf_ws_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Saving deployed mode should make env selection explicit and remove stale allocator URLs."""
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "BACKEND_PROVIDER=speech-to-speech\n"
-        "S2S_REALTIME_SESSION_URL=https://lb.example.test/session\n"
-        "S2S_REALTIME_WS_URL=ws://localhost:8765/v1/realtime\n",
+        "BACKEND_PROVIDER=huggingface\n"
+        "HF_REALTIME_SESSION_URL=https://lb.example.test/session\n"
+        "HF_REALTIME_WS_URL=ws://localhost:8765/v1/realtime\n",
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
     monkeypatch.setattr(config, "MODEL_NAME", "gpt-realtime")
-    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
-    monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
-    monkeypatch.setenv("BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", None)
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "HF_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
+    monkeypatch.setenv("BACKEND_PROVIDER", "huggingface")
     monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
-    monkeypatch.delenv("S2S_REALTIME_CONNECTION_MODE", raising=False)
-    monkeypatch.setenv("S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
-    monkeypatch.setenv("S2S_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
+    monkeypatch.delenv("HF_REALTIME_CONNECTION_MODE", raising=False)
+    monkeypatch.setenv("HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setenv("HF_REALTIME_WS_URL", "ws://localhost:8765/v1/realtime")
 
     app = FastAPI()
     robot = SimpleNamespace(media=SimpleNamespace(audio=None, backend=None))
@@ -309,33 +309,33 @@ def test_backend_config_persists_deployed_mode_without_clearing_local_s2s_ws_url
     response = client.post(
         "/backend_config",
         json={
-            "backend": "speech-to-speech",
-            "s2s_mode": "deployed",
+            "backend": "huggingface",
+            "hf_mode": "deployed",
         },
     )
 
     assert response.status_code == 200
     data = response.json()
     assert data["ok"] is True
-    assert data["has_s2s_session_url"] is True
-    assert data["has_s2s_ws_url"] is True
-    assert data["s2s_connection_mode"] == "deployed"
+    assert data["has_hf_session_url"] is True
+    assert data["has_hf_ws_url"] is True
+    assert data["hf_connection_mode"] == "deployed"
 
     env_text = env_path.read_text(encoding="utf-8")
-    assert "S2S_REALTIME_CONNECTION_MODE=deployed" in env_text
-    assert "S2S_REALTIME_SESSION_URL=" not in env_text
-    assert "S2S_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
+    assert "HF_REALTIME_CONNECTION_MODE=deployed" in env_text
+    assert "HF_REALTIME_SESSION_URL=" not in env_text
+    assert "HF_REALTIME_WS_URL=ws://localhost:8765/v1/realtime" in env_text
 
 
-def test_status_reports_direct_s2s_ws_url_as_ready(
+def test_status_reports_direct_hf_ws_url_as_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Settings API should treat a direct speech-to-speech websocket as a valid configuration."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
-    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
+    """Settings API should treat a direct Hugging Face websocket as a valid configuration."""
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", None)
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", None)
+    monkeypatch.setattr(config, "HF_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
 
     app = FastAPI()
     robot = SimpleNamespace(media=SimpleNamespace(audio=None, backend=None))
@@ -347,12 +347,12 @@ def test_status_reports_direct_s2s_ws_url_as_ready(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["backend_provider"] == "speech-to-speech"
-    assert data["has_s2s_session_url"] is False
-    assert data["has_s2s_ws_url"] is True
-    assert data["has_s2s_connection"] is True
-    assert data["s2s_connection_mode"] == "local"
-    assert data["can_proceed_with_s2s"] is True
+    assert data["backend_provider"] == "huggingface"
+    assert data["has_hf_session_url"] is False
+    assert data["has_hf_ws_url"] is True
+    assert data["has_hf_connection"] is True
+    assert data["hf_connection_mode"] == "local"
+    assert data["can_proceed_with_hf"] is True
 
 
 def test_headless_personality_routes_return_gemini_voices_when_backend_selected(

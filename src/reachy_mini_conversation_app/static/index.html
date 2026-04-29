@@ -57,17 +57,17 @@
           <span id="backend-chip" class="chip">Required</span>
         </div>
         <p id="backend-note" class="muted backend-note">
-          OpenAI Realtime needs your own <code>OPENAI_API_KEY</code>. Gemini Live needs your own <code>GEMINI_API_KEY</code>. Speech-to-speech uses either the built-in Hugging Face server or a direct realtime websocket endpoint.
+          OpenAI Realtime needs your own <code>OPENAI_API_KEY</code>. Gemini Live needs your own <code>GEMINI_API_KEY</code>. Hugging Face uses either the built-in server or a direct realtime websocket endpoint.
         </p>
         <p class="muted backend-note">
           Backend changes are saved here, then applied after you restart Reachy Mini Conversation from the dashboard or desktop app.
         </p>
         <div class="backend-choice-grid" role="radiogroup" aria-label="Conversation backend">
-          <label class="backend-choice" data-backend-card="speech-to-speech">
-            <input type="radio" name="backend" value="speech-to-speech" />
+          <label class="backend-choice" data-backend-card="huggingface">
+            <input type="radio" name="backend" value="huggingface" />
             <span class="backend-choice-body">
-              <span class="backend-choice-title">Speech-to-speech</span>
-              <span class="backend-choice-copy">Use the Hugging Face speech-to-speech server or your own local endpoint.</span>
+              <span class="backend-choice-title">Hugging Face</span>
+              <span class="backend-choice-copy">Use the built-in Hugging Face server or your own local endpoint.</span>
             </span>
           </label>
           <label class="backend-choice is-selected" data-backend-card="openai">
@@ -116,38 +116,38 @@
           <label id="api-key-label" for="api-key">OpenAI API Key</label>
           <input id="api-key" type="password" placeholder="sk-..." autocomplete="off" />
         </div>
-        <div id="s2s-fields" class="hidden">
-          <label for="s2s-mode">Connection mode</label>
-          <select id="s2s-mode">
+        <div id="hf-fields" class="hidden">
+          <label for="hf-mode">Connection mode</label>
+          <select id="hf-mode">
             <option value="local">Local</option>
             <option value="deployed">Hugging Face server</option>
           </select>
 
-          <div id="s2s-direct-fields" class="s2s-config-grid">
-            <p class="muted s2s-help s2s-local-note">
-              Use your own version of
+          <div id="hf-direct-fields" class="hf-config-grid">
+            <p class="muted hf-help hf-local-note">
+              Use your own Hugging Face backend powered by
               <a href="https://github.com/huggingface/speech-to-speech" target="_blank" rel="noopener">speech-to-speech</a>.
-              Run it either on the same machine, locally on your network, or hosted in Hugging Face.
+              Run it either on the same machine, locally on your network, or hosted on Hugging Face.
             </p>
-            <div class="s2s-field">
-              <label for="s2s-host-preset">Host</label>
-              <select id="s2s-host-preset">
+            <div class="hf-field">
+              <label for="hf-host-preset">Host</label>
+              <select id="hf-host-preset">
                 <option value="localhost">localhost</option>
                 <option value="custom">Custom IP or hostname</option>
               </select>
             </div>
-            <div class="s2s-field">
-              <label for="s2s-port">Port</label>
-              <input id="s2s-port" type="text" inputmode="numeric" value="8765" placeholder="8765" autocomplete="off" />
+            <div class="hf-field">
+              <label for="hf-port">Port</label>
+              <input id="hf-port" type="text" inputmode="numeric" value="8765" placeholder="8765" autocomplete="off" />
             </div>
           </div>
 
-          <div id="s2s-host-custom-wrap" class="hidden">
-            <label for="s2s-host-custom">Custom host or IP</label>
-            <input id="s2s-host-custom" type="text" placeholder="192.168.1.20" autocomplete="off" />
+          <div id="hf-host-custom-wrap" class="hidden">
+            <label for="hf-host-custom">Custom host or IP</label>
+            <input id="hf-host-custom" type="text" placeholder="192.168.1.20" autocomplete="off" />
           </div>
 
-          <p id="s2s-preview" class="status"></p>
+          <p id="hf-preview" class="status"></p>
         </div>
         <div class="actions">
           <button id="save-btn">Save key</button>

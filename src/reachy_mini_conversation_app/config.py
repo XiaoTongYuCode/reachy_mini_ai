@@ -58,8 +58,8 @@ AVAILABLE_VOICES: list[str] = [
 ]
 OPENAI_DEFAULT_VOICE = "cedar"
 
-# Qwen3-TTS CustomVoice speaker catalog from the deployed speech-to-speech backend.
-S2S_AVAILABLE_VOICES: list[str] = [
+# Qwen3-TTS CustomVoice speaker catalog from the deployed Hugging Face backend.
+HF_AVAILABLE_VOICES: list[str] = [
     "Aiden",
     "Ryan",
     "Dylan",
@@ -70,7 +70,7 @@ S2S_AVAILABLE_VOICES: list[str] = [
     "Uncle_Fu",
     "Vivian",
 ]
-S2S_DEFAULT_VOICE = "Aiden"
+HF_DEFAULT_VOICE = "Aiden"
 
 # Voices supported by the Gemini Live API
 GEMINI_AVAILABLE_VOICES: list[str] = [
@@ -86,29 +86,30 @@ GEMINI_AVAILABLE_VOICES: list[str] = [
 
 OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
-S2S_BACKEND = "speech-to-speech"
-DEFAULT_BACKEND_PROVIDER = S2S_BACKEND
-S2S_REALTIME_CONNECTION_MODE_ENV = "S2S_REALTIME_CONNECTION_MODE"
-S2S_LOCAL_CONNECTION_MODE = "local"
-S2S_DEPLOYED_CONNECTION_MODE = "deployed"
-# App-managed Hugging Face speech-to-speech server allocator. This is intentionally
-# not read from S2S_REALTIME_SESSION_URL; users who need a custom speech-to-speech
-# target should use S2S_REALTIME_CONNECTION_MODE=local with S2S_REALTIME_WS_URL.
-DEFAULT_S2S_REALTIME_SESSION_URL = "https://v8si2gztnaqwjvf2.us-east-1.aws.endpoints.huggingface.cloud/session"
+HF_BACKEND = "huggingface"
+DEFAULT_BACKEND_PROVIDER = HF_BACKEND
+HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
+HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
+HF_LOCAL_CONNECTION_MODE = "local"
+HF_DEPLOYED_CONNECTION_MODE = "deployed"
+# App-managed Hugging Face server allocator. This is intentionally not read
+# from the environment; users who need a custom target should use
+# HF_REALTIME_CONNECTION_MODE=local with HF_REALTIME_WS_URL.
+DEFAULT_HF_REALTIME_SESSION_URL = "https://v8si2gztnaqwjvf2.us-east-1.aws.endpoints.huggingface.cloud/session"
 DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
-    S2S_BACKEND: "gpt-realtime",
+    HF_BACKEND: "gpt-realtime",
 }
 BACKEND_LABEL_BY_PROVIDER = {
     OPENAI_BACKEND: "OpenAI Realtime",
     GEMINI_BACKEND: "Gemini Live",
-    S2S_BACKEND: "Speech-to-speech",
+    HF_BACKEND: "Hugging Face",
 }
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
     GEMINI_BACKEND: "Kore",
-    S2S_BACKEND: S2S_DEFAULT_VOICE,
+    HF_BACKEND: HF_DEFAULT_VOICE,
 }
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ def _normalize_backend_provider(
     backend_provider: str | None = None,
     model_name: str | None = None,
 ) -> str:
-    """Normalize backend selection, falling back to MODEL_NAME for compatibility."""
+    """Normalize backend selection, falling back to MODEL_NAME for Gemini auto-detection."""
     candidate = (backend_provider or "").strip().lower()
     if candidate in DEFAULT_MODEL_NAME_BY_BACKEND:
         return candidate
@@ -172,16 +173,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return default
 
 
-def _normalize_s2s_connection_mode(value: str | None) -> str | None:
-    """Normalize the speech-to-speech connection mode, if explicitly configured."""
+def _normalize_hf_connection_mode(value: str | None) -> str | None:
+    """Normalize the Hugging Face connection mode, if explicitly configured."""
     candidate = (value or "").strip().lower()
     if not candidate:
         return None
 
-    if candidate not in {S2S_LOCAL_CONNECTION_MODE, S2S_DEPLOYED_CONNECTION_MODE}:
+    if candidate not in {HF_LOCAL_CONNECTION_MODE, HF_DEPLOYED_CONNECTION_MODE}:
         logger.warning(
             "Invalid %s=%r. Expected local or deployed.",
-            S2S_REALTIME_CONNECTION_MODE_ENV,
+            HF_REALTIME_CONNECTION_MODE_ENV,
             value,
         )
         return None
@@ -264,21 +265,21 @@ class Config:
         os.getenv("MODEL_NAME"),
     )
     MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
-    S2S_REALTIME_CONNECTION_MODE = _normalize_s2s_connection_mode(os.getenv(S2S_REALTIME_CONNECTION_MODE_ENV))
-    # Deliberately ignore S2S_REALTIME_SESSION_URL from the environment; see DEFAULT_S2S_REALTIME_SESSION_URL.
-    S2S_REALTIME_SESSION_URL = DEFAULT_S2S_REALTIME_SESSION_URL
-    S2S_REALTIME_WS_URL = os.getenv("S2S_REALTIME_WS_URL")
+    HF_REALTIME_CONNECTION_MODE = _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
+    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; see DEFAULT_HF_REALTIME_SESSION_URL.
+    HF_REALTIME_SESSION_URL = DEFAULT_HF_REALTIME_SESSION_URL
+    HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
     HF_HOME = os.getenv("HF_HOME", "./cache")
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
 
     logger.debug(
-        "Backend provider: %s, Model: %s, S2S mode: %s, S2S session URL set: %s, S2S direct URL set: %s, HF_HOME: %s, Vision Model: %s",
+        "Backend provider: %s, Model: %s, HF mode: %s, HF session URL set: %s, HF direct URL set: %s, HF_HOME: %s, Vision Model: %s",
         BACKEND_PROVIDER,
         MODEL_NAME,
-        S2S_REALTIME_CONNECTION_MODE or "auto",
-        bool(S2S_REALTIME_SESSION_URL and S2S_REALTIME_SESSION_URL.strip()),
-        bool(S2S_REALTIME_WS_URL and S2S_REALTIME_WS_URL.strip()),
+        HF_REALTIME_CONNECTION_MODE or "auto",
+        bool(HF_REALTIME_SESSION_URL and HF_REALTIME_SESSION_URL.strip()),
+        bool(HF_REALTIME_WS_URL and HF_REALTIME_WS_URL.strip()),
         HF_HOME,
         LOCAL_VISION_MODEL,
     )
@@ -365,10 +366,10 @@ def refresh_runtime_config_from_env() -> None:
         os.getenv("MODEL_NAME"),
     )
     config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
-    config.S2S_REALTIME_CONNECTION_MODE = _normalize_s2s_connection_mode(os.getenv(S2S_REALTIME_CONNECTION_MODE_ENV))
-    # Deliberately ignore S2S_REALTIME_SESSION_URL from the environment; see DEFAULT_S2S_REALTIME_SESSION_URL.
-    config.S2S_REALTIME_SESSION_URL = DEFAULT_S2S_REALTIME_SESSION_URL
-    config.S2S_REALTIME_WS_URL = os.getenv("S2S_REALTIME_WS_URL")
+    config.HF_REALTIME_CONNECTION_MODE = _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
+    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; see DEFAULT_HF_REALTIME_SESSION_URL.
+    config.HF_REALTIME_SESSION_URL = DEFAULT_HF_REALTIME_SESSION_URL
+    config.HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
 
 
@@ -395,8 +396,8 @@ def get_available_voices_for_backend(backend: str | None = None) -> list[str]:
     normalized_backend = get_backend_choice() if backend is None else _normalize_backend_provider(backend)
     if normalized_backend == GEMINI_BACKEND:
         return list(GEMINI_AVAILABLE_VOICES)
-    if normalized_backend == S2S_BACKEND:
-        return list(S2S_AVAILABLE_VOICES)
+    if normalized_backend == HF_BACKEND:
+        return list(HF_AVAILABLE_VOICES)
     return list(AVAILABLE_VOICES)
 
 
@@ -406,48 +407,48 @@ def get_default_voice_for_backend(backend: str | None = None) -> str:
     return DEFAULT_VOICE_BY_BACKEND[normalized_backend]
 
 
-def get_s2s_session_url() -> str | None:
-    """Return the built-in speech-to-speech session allocator URL, if any."""
-    value = (getattr(config, "S2S_REALTIME_SESSION_URL", None) or "").strip()
+def get_hf_session_url() -> str | None:
+    """Return the built-in Hugging Face session allocator URL, if any."""
+    value = (getattr(config, "HF_REALTIME_SESSION_URL", None) or "").strip()
     return value or None
 
 
-def get_s2s_direct_ws_url() -> str | None:
-    """Return the configured direct speech-to-speech realtime URL, if any."""
-    value = (getattr(config, "S2S_REALTIME_WS_URL", None) or "").strip()
+def get_hf_direct_ws_url() -> str | None:
+    """Return the configured direct Hugging Face realtime URL, if any."""
+    value = (getattr(config, "HF_REALTIME_WS_URL", None) or "").strip()
     return value or None
 
 
-def get_s2s_selected_connection_mode() -> str:
-    """Return the selected speech-to-speech mode, falling back to legacy URL inference."""
-    configured_mode = _normalize_s2s_connection_mode(getattr(config, "S2S_REALTIME_CONNECTION_MODE", None))
+def get_hf_selected_connection_mode() -> str:
+    """Return the selected Hugging Face mode, falling back to URL inference."""
+    configured_mode = _normalize_hf_connection_mode(getattr(config, "HF_REALTIME_CONNECTION_MODE", None))
     if configured_mode is not None:
         return configured_mode
-    if get_s2s_direct_ws_url():
-        return S2S_LOCAL_CONNECTION_MODE
-    if get_s2s_session_url():
-        return S2S_DEPLOYED_CONNECTION_MODE
-    return S2S_LOCAL_CONNECTION_MODE
+    if get_hf_direct_ws_url():
+        return HF_LOCAL_CONNECTION_MODE
+    if get_hf_session_url():
+        return HF_DEPLOYED_CONNECTION_MODE
+    return HF_LOCAL_CONNECTION_MODE
 
 
-def get_s2s_connection_mode() -> str | None:
-    """Return the selected speech-to-speech mode only when its target is configured."""
-    configured_mode = _normalize_s2s_connection_mode(getattr(config, "S2S_REALTIME_CONNECTION_MODE", None))
-    if configured_mode == S2S_LOCAL_CONNECTION_MODE:
-        return S2S_LOCAL_CONNECTION_MODE if get_s2s_direct_ws_url() else None
-    if configured_mode == S2S_DEPLOYED_CONNECTION_MODE:
-        return S2S_DEPLOYED_CONNECTION_MODE if get_s2s_session_url() else None
+def get_hf_connection_mode() -> str | None:
+    """Return the selected Hugging Face mode only when its target is configured."""
+    configured_mode = _normalize_hf_connection_mode(getattr(config, "HF_REALTIME_CONNECTION_MODE", None))
+    if configured_mode == HF_LOCAL_CONNECTION_MODE:
+        return HF_LOCAL_CONNECTION_MODE if get_hf_direct_ws_url() else None
+    if configured_mode == HF_DEPLOYED_CONNECTION_MODE:
+        return HF_DEPLOYED_CONNECTION_MODE if get_hf_session_url() else None
 
-    if get_s2s_direct_ws_url():
-        return S2S_LOCAL_CONNECTION_MODE
-    if get_s2s_session_url():
-        return S2S_DEPLOYED_CONNECTION_MODE
+    if get_hf_direct_ws_url():
+        return HF_LOCAL_CONNECTION_MODE
+    if get_hf_session_url():
+        return HF_DEPLOYED_CONNECTION_MODE
     return None
 
 
-def has_s2s_realtime_target() -> bool:
-    """Return whether speech-to-speech has a target for the selected mode."""
-    return get_s2s_connection_mode() is not None
+def has_hf_realtime_target() -> bool:
+    """Return whether Hugging Face has a target for the selected mode."""
+    return get_hf_connection_mode() is not None
 
 
 def is_gemini_model() -> bool:
@@ -455,7 +456,7 @@ def is_gemini_model() -> bool:
     return get_backend_choice() == GEMINI_BACKEND
 
 
-# Backward-compatible aliases for call sites that still import a generic default.
+# Generic default voice for UI and tests.
 DEFAULT_VOICE = get_default_voice_for_backend()
 
 

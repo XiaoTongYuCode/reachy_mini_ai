@@ -9,12 +9,12 @@ from numpy.typing import NDArray
 from websockets.exceptions import ConnectionClosedError
 
 from reachy_mini_conversation_app.config import (
-    S2S_BACKEND,
-    S2S_LOCAL_CONNECTION_MODE,
+    HF_BACKEND,
+    HF_LOCAL_CONNECTION_MODE,
     config,
-    get_s2s_session_url,
-    get_s2s_direct_ws_url,
-    get_s2s_selected_connection_mode,
+    get_hf_session_url,
+    get_hf_direct_ws_url,
+    get_hf_selected_connection_mode,
 )
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.base_realtime import (
@@ -37,7 +37,7 @@ def _build_openai_compatible_client_from_realtime_url(
     scheme = parsed.scheme.lower()
     if scheme not in {"ws", "wss", "http", "https"}:
         raise ValueError(
-            "Expected speech-to-speech realtime URL to start with ws://, wss://, http://, or https://, "
+            "Expected Hugging Face realtime URL to start with ws://, wss://, http://, or https://, "
             f"got: {realtime_url}"
         )
 
@@ -61,9 +61,9 @@ def _build_openai_compatible_client_from_realtime_url(
 
 
 class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
-    """Realtime handler for Hugging Face speech-to-speech endpoints."""
+    """Realtime handler for Hugging Face endpoints."""
 
-    BACKEND_PROVIDER = S2S_BACKEND
+    BACKEND_PROVIDER = HF_BACKEND
     SAMPLE_RATE = 16000
     REQUIRES_API_KEY = False
     REFRESH_CLIENT_ON_RECONNECT = True
@@ -82,10 +82,10 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         return (ConnectionClosedError,)
 
     def _get_openai_compatible_session_audio_rates(self) -> tuple[Literal[24000] | None, Literal[24000] | None]:
-        """Return S2S audio rates for the OpenAI-compatible session payload.
+        """Return Hugging Face audio rates for the OpenAI-compatible session payload.
 
         The OpenAI SDK type accepts only 24 kHz or None. The Hugging Face
-        speech-to-speech server interprets None as its native 16 kHz default.
+        backend interprets None as its native 16 kHz default.
         """
         input_rate: Literal[24000] | None
         output_rate: Literal[24000] | None
@@ -95,23 +95,23 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         elif self.input_sample_rate == 24000:
             input_rate = 24000
         else:
-            raise AssertionError(f"Unsupported S2S input sample rate: {self.input_sample_rate}")
+            raise AssertionError(f"Unsupported Hugging Face input sample rate: {self.input_sample_rate}")
 
         if self.output_sample_rate == self.SAMPLE_RATE:
             output_rate = None
         elif self.output_sample_rate == 24000:
             output_rate = 24000
         else:
-            raise AssertionError(f"Unsupported S2S output sample rate: {self.output_sample_rate}")
+            raise AssertionError(f"Unsupported Hugging Face output sample rate: {self.output_sample_rate}")
 
         return input_rate, output_rate
 
     def _get_session_instructions(self) -> str:
-        """Return speech-to-speech session instructions."""
+        """Return Hugging Face session instructions."""
         return get_session_instructions()
 
     def _get_session_voice(self, default: str | None = None) -> str:
-        """Return the configured speech-to-speech session voice."""
+        """Return the configured Hugging Face session voice."""
         return get_session_voice(default)
 
     def _get_active_tool_specs(self) -> list[dict[str, Any]]:
@@ -128,31 +128,31 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         item_id: str,
         delta: str,
     ) -> None:
-        """Record a speech-to-speech partial transcript snapshot."""
+        """Record a Hugging Face partial transcript snapshot."""
         input_transcript.item_id = item_id
         input_transcript.deltas = [delta]
 
     async def _build_realtime_client(self, api_key: str | None = None) -> AsyncOpenAI:
-        """Build the speech-to-speech OpenAI-compatible realtime client."""
+        """Build the Hugging Face OpenAI-compatible realtime client."""
         resolved_api_key = (api_key or self._provided_api_key or config.OPENAI_API_KEY or "").strip()
-        selected_connection_mode = get_s2s_selected_connection_mode()
-        direct_realtime_url = get_s2s_direct_ws_url()
-        if selected_connection_mode == S2S_LOCAL_CONNECTION_MODE:
+        selected_connection_mode = get_hf_selected_connection_mode()
+        direct_realtime_url = get_hf_direct_ws_url()
+        if selected_connection_mode == HF_LOCAL_CONNECTION_MODE:
             if not direct_realtime_url:
-                raise RuntimeError("S2S_REALTIME_WS_URL must be set when S2S_REALTIME_CONNECTION_MODE=local")
+                raise RuntimeError("HF_REALTIME_WS_URL must be set when HF_REALTIME_CONNECTION_MODE=local")
             client, connect_query = _build_openai_compatible_client_from_realtime_url(
                 direct_realtime_url,
                 resolved_api_key,
             )
             self._realtime_connect_query = connect_query
-            logger.info("Using direct speech-to-speech realtime endpoint %s", direct_realtime_url)
+            logger.info("Using direct Hugging Face realtime endpoint %s", direct_realtime_url)
             return client
 
-        session_url = get_s2s_session_url()
+        session_url = get_hf_session_url()
         if not session_url:
-            raise RuntimeError("Built-in speech-to-speech session allocator URL is unavailable")
+            raise RuntimeError("Built-in Hugging Face session allocator URL is unavailable")
         if direct_realtime_url:
-            logger.info("S2S_REALTIME_CONNECTION_MODE=deployed; ignoring S2S_REALTIME_WS_URL.")
+            logger.info("HF_REALTIME_CONNECTION_MODE=deployed; ignoring HF_REALTIME_WS_URL.")
 
         async with httpx.AsyncClient(timeout=10.0) as http_client:
             response = await http_client.post(session_url)

@@ -47,16 +47,16 @@ def run(
     # Putting these dependencies here makes the dashboard faster to load when the conversation app is installed
     from reachy_mini_conversation_app.moves import MovementManager
     from reachy_mini_conversation_app.config import (
-        S2S_BACKEND,
+        HF_BACKEND,
         GEMINI_BACKEND,
         OPENAI_BACKEND,
-        S2S_LOCAL_CONNECTION_MODE,
+        HF_LOCAL_CONNECTION_MODE,
         config,
         is_gemini_model,
         get_backend_label,
-        get_s2s_connection_mode,
+        get_hf_connection_mode,
+        get_hf_selected_connection_mode,
         refresh_runtime_config_from_env,
-        get_s2s_selected_connection_mode,
     )
     from reachy_mini_conversation_app.startup_settings import (
         StartupSettings,
@@ -84,12 +84,12 @@ def run(
         except Exception as e:
             logger.warning("Failed to load startup settings: %s", e)
 
-    if config.BACKEND_PROVIDER == S2S_BACKEND:
+    if config.BACKEND_PROVIDER == HF_BACKEND:
         logger.info(
             "Configured backend provider: %s (%s), connection mode: %s",
             config.BACKEND_PROVIDER,
             get_backend_label(config.BACKEND_PROVIDER),
-            get_s2s_selected_connection_mode(),
+            get_hf_selected_connection_mode(),
         )
     else:
         logger.info(
@@ -190,16 +190,16 @@ def run(
             instance_path=instance_path,
             startup_voice=startup_settings.voice,
         )
-    elif config.BACKEND_PROVIDER == S2S_BACKEND:
+    elif config.BACKEND_PROVIDER == HF_BACKEND:
         from reachy_mini_conversation_app.huggingface_realtime import HuggingFaceRealtimeHandler
 
         transport_label = (
-            "speech-to-speech direct websocket"
-            if get_s2s_connection_mode() == S2S_LOCAL_CONNECTION_MODE
-            else "speech-to-speech session allocator"
+            "Hugging Face direct websocket"
+            if get_hf_connection_mode() == HF_LOCAL_CONNECTION_MODE
+            else "Hugging Face session allocator"
         )
         logger.info(
-            "Using %s via Hugging Face speech-to-speech realtime handler (%s)",
+            "Using %s via Hugging Face realtime handler (%s)",
             get_backend_label(config.BACKEND_PROVIDER),
             transport_label,
         )

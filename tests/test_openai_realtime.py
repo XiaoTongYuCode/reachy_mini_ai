@@ -425,7 +425,7 @@ async def test_output_audio_delta_passes_output_sample_rate_to_head_wobbler(monk
     monkeypatch.setattr(hf_mod, "get_session_instructions", lambda: "test")
     monkeypatch.setattr(hf_mod, "get_session_voice", lambda default=DEFAULT_VOICE: "Aiden")
     monkeypatch.setattr(hf_mod, "get_active_tool_specs", lambda _: [])
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
 
     audio_delta = "AAABAAIAAwA="
 
@@ -574,9 +574,9 @@ def test_handler_uses_startup_voice_at_startup(monkeypatch: Any) -> None:
     assert handler.get_current_voice() == "shimmer"
 
 
-def test_handler_uses_s2s_startup_voice_at_startup(monkeypatch: Any) -> None:
-    """Speech-to-speech startup should restore persisted S2S voices."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+def test_handler_uses_hf_startup_voice_at_startup(monkeypatch: Any) -> None:
+    """Hugging Face startup should restore persisted HF voices."""
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
 
     handler = HuggingFaceRealtimeHandler(
         ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()),
@@ -730,9 +730,9 @@ async def test_start_up_retries_on_abrupt_close(monkeypatch: Any, caplog: Any) -
 
 
 @pytest.mark.asyncio
-async def test_start_up_s2s_gradio_does_not_wait_for_api_key(monkeypatch: Any) -> None:
-    """Speech-to-speech backend should not wait for gradio key input."""
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
+async def test_start_up_hf_gradio_does_not_wait_for_api_key(monkeypatch: Any) -> None:
+    """Hugging Face backend should not wait for gradio key input."""
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
     monkeypatch.setattr(config, "OPENAI_API_KEY", None)
 
     deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
@@ -755,12 +755,12 @@ async def test_start_up_s2s_gradio_does_not_wait_for_api_key(monkeypatch: Any) -
 
 @pytest.mark.asyncio
 async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions(monkeypatch: Any) -> None:
-    """Use the backend default speaker when no profile voice is selected for the s2s LB."""
+    """Use the backend default speaker when no profile voice is selected for the hf LB."""
     monkeypatch.setattr(hf_mod, "get_session_instructions", lambda: "test")
     monkeypatch.setattr(hf_mod, "get_session_voice", lambda default=DEFAULT_VOICE: default)
     monkeypatch.setattr(hf_mod, "get_active_tool_specs", lambda _: [])
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
 
     captured_update: dict[str, Any] = {}
 
@@ -823,7 +823,7 @@ async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions
     await handler._run_realtime_session()
 
     session = captured_update["session"]
-    # S2S at 16 kHz passes None so the backend uses its optimal default (16 kHz).
+    # HF at 16 kHz passes None so the backend uses its optimal default (16 kHz).
     assert session["audio"]["input"]["format"]["rate"] is None
     assert session["audio"]["output"]["format"]["rate"] is None
     output = session["audio"]["output"]
@@ -832,7 +832,7 @@ async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions
 
 @pytest.mark.asyncio
 async def test_run_realtime_session_passes_allocated_session_query(monkeypatch: Any) -> None:
-    """Speech-to-speech sessions must forward the allocated session token to the websocket connect call."""
+    """Hugging Face sessions must forward the allocated session token to the websocket connect call."""
     monkeypatch.setattr(hf_mod, "get_session_instructions", lambda: "test")
     monkeypatch.setattr(hf_mod, "get_session_voice", lambda default=DEFAULT_VOICE: default)
     monkeypatch.setattr(hf_mod, "get_active_tool_specs", lambda _: [])
@@ -902,8 +902,8 @@ async def test_run_realtime_session_passes_allocated_session_query(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_build_realtime_client_uses_direct_s2s_ws_url(monkeypatch: Any) -> None:
-    """Speech-to-speech direct websocket mode should bypass the session allocator."""
+async def test_build_realtime_client_uses_direct_hf_ws_url(monkeypatch: Any) -> None:
+    """Hugging Face direct websocket mode should bypass the session allocator."""
     captured_client_kwargs: dict[str, Any] = {}
 
     class FakeClient:
@@ -915,12 +915,12 @@ async def test_build_realtime_client_uses_direct_s2s_ws_url(monkeypatch: Any) ->
 
     monkeypatch.setattr(hf_mod, "AsyncOpenAI", FakeClient)
     monkeypatch.setattr(hf_mod.httpx, "AsyncClient", _unexpected_async_client)
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
-    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", None)
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", None)
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
     monkeypatch.setattr(
         config,
-        "S2S_REALTIME_WS_URL",
+        "HF_REALTIME_WS_URL",
         "ws://127.0.0.1:8765/v1/realtime?session_token=abc123&model=ignored-by-sdk",
     )
 
@@ -936,7 +936,7 @@ async def test_build_realtime_client_uses_direct_s2s_ws_url(monkeypatch: Any) ->
 
 
 @pytest.mark.asyncio
-async def test_build_realtime_client_uses_deployed_mode_even_when_direct_s2s_ws_url_is_saved(
+async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_url_is_saved(
     monkeypatch: Any,
 ) -> None:
     """Explicit deployed mode should let .env recover from a stale local websocket URL."""
@@ -954,7 +954,7 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_s2s_ws_
         def json(self) -> dict[str, str]:
             return {
                 "session_id": "session-123",
-                "connect_url": "wss://s2s.example.test/v1/realtime?session_token=allocated",
+                "connect_url": "wss://hf.example.test/v1/realtime?session_token=allocated",
             }
 
     class FakeAsyncClient:
@@ -973,10 +973,10 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_s2s_ws_
 
     monkeypatch.setattr(hf_mod, "AsyncOpenAI", FakeClient)
     monkeypatch.setattr(hf_mod.httpx, "AsyncClient", FakeAsyncClient)
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
-    monkeypatch.setattr(config, "S2S_REALTIME_CONNECTION_MODE", "deployed")
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
-    monkeypatch.setattr(config, "S2S_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", "deployed")
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "HF_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
 
     handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
 
@@ -984,8 +984,8 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_s2s_ws_
 
     assert client is not None
     assert requested_session_urls == ["https://lb.example.test/session"]
-    assert captured_client_kwargs["base_url"] == "https://s2s.example.test/v1"
-    assert captured_client_kwargs["websocket_base_url"] == "wss://s2s.example.test/v1"
+    assert captured_client_kwargs["base_url"] == "https://hf.example.test/v1"
+    assert captured_client_kwargs["websocket_base_url"] == "wss://hf.example.test/v1"
     assert handler._realtime_connect_query == {"session_token": "allocated"}
 
 
@@ -1005,8 +1005,8 @@ async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(m
     """Live personality updates should honor the selected Qwen CustomVoice speaker."""
     monkeypatch.setattr(hf_mod, "get_session_instructions", lambda: "new instructions")
     monkeypatch.setattr(hf_mod, "get_session_voice", lambda default=DEFAULT_VOICE: "Serena")
-    monkeypatch.setattr(config, "BACKEND_PROVIDER", "speech-to-speech")
-    monkeypatch.setattr(config, "S2S_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
 
     captured_update: dict[str, Any] = {}
 
@@ -1087,7 +1087,7 @@ def test_compute_response_cost(usage_kwargs: dict[str, Any], expect_positive: bo
 
 
 def test_huggingface_response_cost_defaults_to_zero() -> None:
-    """Speech-to-speech should not inherit OpenAI pricing from the shared base handler."""
+    """Hugging Face should not inherit OpenAI pricing from the shared base handler."""
     usage = _make_usage(audio_in=1000, text_in=2000, image_in=500, audio_out=800, text_out=300)
     handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
 

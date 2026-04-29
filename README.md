@@ -31,7 +31,7 @@ Conversational app for the Reachy Mini robot combining realtime voice backends, 
 
 ## Overview
 - Real-time audio conversation loop with `fastrtc` for low-latency streaming. Supported backends:
-  - **Speech-to-speech** - default, using the built-in Hugging Face server or your own local endpoint.
+  - **Hugging Face** - default, using the built-in Hugging Face server or your own local endpoint.
   - **OpenAI Realtime** (`gpt-realtime`) - requires `OPENAI_API_KEY`.
   - **Gemini Live** (`gemini-3.1-flash-live-preview`) - requires `GEMINI_API_KEY`.
 - Vision processing uses the selected realtime backend by default (when the camera tool is used), with optional on-device local vision using SmolVLM2 (CPU/GPU/MPS) via `--local-vision`.
@@ -121,48 +121,48 @@ Some wheels (like PyTorch) are large and require compatible CUDA or CPU buildsâ€
 
 ## Configuration
 
-The default setup uses the Hugging Face speech-to-speech server and does not require an API key.
+The default setup uses the Hugging Face backend and does not require an API key.
 
-Copy `.env.example` to `.env` when you want to switch backends, provide API keys, or point speech-to-speech at your own local endpoint.
+Copy `.env.example` to `.env` when you want to switch backends, provide API keys, or point Hugging Face at your own local endpoint.
 
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | Required for OpenAI Realtime mode. |
 | `GEMINI_API_KEY` | Required for Gemini mode. Also accepts `GOOGLE_API_KEY`. Get one at [aistudio.google.com](https://aistudio.google.com/apikey). |
-| `BACKEND_PROVIDER` | Realtime backend to use: `speech-to-speech` (default), `openai`, or `gemini`. |
-| `MODEL_NAME` | Optional model override for OpenAI Realtime or Gemini Live. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini. Speech-to-speech uses the server's model selection. |
-| `S2S_REALTIME_CONNECTION_MODE` | Optional speech-to-speech connection selector: `deployed` uses the built-in Hugging Face server; `local` uses `S2S_REALTIME_WS_URL`. When unset, a saved `S2S_REALTIME_WS_URL` takes precedence for compatibility. |
-| `S2S_REALTIME_WS_URL` | Direct websocket endpoint for your own speech-to-speech server. Accepts either a base URL like `ws://127.0.0.1:8765/v1` or the full websocket URL `ws://127.0.0.1:8765/v1/realtime`. Used when `S2S_REALTIME_CONNECTION_MODE=local`. |
+| `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, or `gemini`. |
+| `MODEL_NAME` | Optional model override for OpenAI Realtime or Gemini Live. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini. Hugging Face uses the server's model selection. |
+| `HF_REALTIME_CONNECTION_MODE` | Optional Hugging Face connection selector: `deployed` uses the built-in Hugging Face server; `local` uses `HF_REALTIME_WS_URL`. |
+| `HF_REALTIME_WS_URL` | Direct websocket endpoint for your own Hugging Face backend. Accepts either a base URL like `ws://127.0.0.1:8765/v1` or the full websocket URL `ws://127.0.0.1:8765/v1/realtime`. Used when `HF_REALTIME_CONNECTION_MODE=local`. |
 | `HF_HOME` | Cache directory for local Hugging Face downloads (only used with `--local-vision` flag, defaults to `./cache`). |
 | `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
 
-### Speech-to-speech connection modes
+### Hugging Face Connection Modes
 
 Use the built-in Hugging Face server. This is the default for a new install; set it explicitly only when you want to switch back from a saved local endpoint:
 
 ```env
-BACKEND_PROVIDER=speech-to-speech
-S2S_REALTIME_CONNECTION_MODE=deployed
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=deployed
 ```
 
-Run your own [speech-to-speech](https://github.com/huggingface/speech-to-speech) server on the same machine as the conversation app:
+Run your own Hugging Face backend using [speech-to-speech](https://github.com/huggingface/speech-to-speech) on the same machine as the conversation app:
 
 ```env
-BACKEND_PROVIDER=speech-to-speech
-S2S_REALTIME_CONNECTION_MODE=local
-S2S_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
 ```
 
-Run your own speech-to-speech server on your laptop and connect to it from Reachy Mini Wireless over the same Wi-Fi network:
+Run your own Hugging Face backend on your laptop and connect to it from Reachy Mini Wireless over the same Wi-Fi network:
 
 ```env
-BACKEND_PROVIDER=speech-to-speech
-S2S_REALTIME_CONNECTION_MODE=local
-S2S_REALTIME_WS_URL=ws://<your-laptop-lan-ip>:8765/v1/realtime
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://<your-laptop-lan-ip>:8765/v1/realtime
 ```
 
-For that LAN setup, make sure the speech-to-speech server listens on an address reachable from the robot, not only on `127.0.0.1`.
+For that LAN setup, make sure the backend listens on an address reachable from the robot, not only on `127.0.0.1`.
 
 If the backend stays bound to loopback on your laptop, you can forward it into the robot over SSH instead:
 
@@ -173,12 +173,12 @@ ssh -N -R 8765:127.0.0.1:8765 <robot-user>@<robot-host>
 Then set this on the robot:
 
 ```env
-BACKEND_PROVIDER=speech-to-speech
-S2S_REALTIME_CONNECTION_MODE=local
-S2S_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
 ```
 
-When using the headless settings UI, selecting `Speech-to-speech` lets you choose either the Hugging Face server or a local `host:port` target. The UI writes `S2S_REALTIME_CONNECTION_MODE` for you, and the local path writes `S2S_REALTIME_WS_URL` with a default of `localhost:8765`.
+When using the headless settings UI, selecting `Hugging Face` lets you choose either the built-in server or a local `host:port` target. The UI writes `HF_REALTIME_CONNECTION_MODE` for you, and the local path writes `HF_REALTIME_WS_URL` with a default of `localhost:8765`.
 
 ## Running the app
 
