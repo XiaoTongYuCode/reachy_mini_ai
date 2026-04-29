@@ -47,12 +47,13 @@ logger = logging.getLogger(__name__)
 OPENAI_REALTIME_SAMPLE_RATE: Final[int] = 24000
 S2S_REALTIME_SAMPLE_RATE: Final[int] = 16000
 
-# Cost tracking from usage data (pricing as of Feb 2026 https://openai.com/api/pricing/)
-AUDIO_INPUT_COST_PER_1M = 32.0
-AUDIO_OUTPUT_COST_PER_1M = 64.0
-TEXT_INPUT_COST_PER_1M = 4.0
-TEXT_OUTPUT_COST_PER_1M = 16.0
-IMAGE_INPUT_COST_PER_1M = 5.0
+# Backend-neutral cost defaults. Providers with known pricing override these
+# rates in their concrete handler.
+AUDIO_INPUT_COST_PER_1M = 0.0
+AUDIO_OUTPUT_COST_PER_1M = 0.0
+TEXT_INPUT_COST_PER_1M = 0.0
+TEXT_OUTPUT_COST_PER_1M = 0.0
+IMAGE_INPUT_COST_PER_1M = 0.0
 
 _RESPONSE_DONE_TIMEOUT: Final[float] = 30.0
 
@@ -64,18 +65,26 @@ class InputTranscriptChunksByItem(BaseModel):
     deltas: list[str] = Field(default_factory=list)
 
 
-def _compute_response_cost(usage: Any) -> float:
+def _compute_response_cost(
+    usage: Any,
+    *,
+    audio_input_cost_per_1m: float = AUDIO_INPUT_COST_PER_1M,
+    audio_output_cost_per_1m: float = AUDIO_OUTPUT_COST_PER_1M,
+    text_input_cost_per_1m: float = TEXT_INPUT_COST_PER_1M,
+    text_output_cost_per_1m: float = TEXT_OUTPUT_COST_PER_1M,
+    image_input_cost_per_1m: float = IMAGE_INPUT_COST_PER_1M,
+) -> float:
     """Compute dollar cost from a response usage object."""
     inp = getattr(usage, "input_token_details", None)
     out = getattr(usage, "output_token_details", None)
     cost = 0.0
     if inp:
-        cost += (getattr(inp, "audio_tokens", 0) or 0) * AUDIO_INPUT_COST_PER_1M / 1e6
-        cost += (getattr(inp, "text_tokens", 0) or 0) * TEXT_INPUT_COST_PER_1M / 1e6
-        cost += (getattr(inp, "image_tokens", 0) or 0) * IMAGE_INPUT_COST_PER_1M / 1e6
+        cost += (getattr(inp, "audio_tokens", 0) or 0) * audio_input_cost_per_1m / 1e6
+        cost += (getattr(inp, "text_tokens", 0) or 0) * text_input_cost_per_1m / 1e6
+        cost += (getattr(inp, "image_tokens", 0) or 0) * image_input_cost_per_1m / 1e6
     if out:
-        cost += (getattr(out, "audio_tokens", 0) or 0) * AUDIO_OUTPUT_COST_PER_1M / 1e6
-        cost += (getattr(out, "text_tokens", 0) or 0) * TEXT_OUTPUT_COST_PER_1M / 1e6
+        cost += (getattr(out, "audio_tokens", 0) or 0) * audio_output_cost_per_1m / 1e6
+        cost += (getattr(out, "text_tokens", 0) or 0) * text_output_cost_per_1m / 1e6
     return cost
 
 
@@ -101,6 +110,11 @@ class BaseRealtimeHandler(AsyncStreamHandler):
     realtime_sample_rate: int = OPENAI_REALTIME_SAMPLE_RATE
     requires_api_key: bool = False
     refresh_client_on_reconnect: bool = False
+    audio_input_cost_per_1m: float = AUDIO_INPUT_COST_PER_1M
+    audio_output_cost_per_1m: float = AUDIO_OUTPUT_COST_PER_1M
+    text_input_cost_per_1m: float = TEXT_INPUT_COST_PER_1M
+    text_output_cost_per_1m: float = TEXT_OUTPUT_COST_PER_1M
+    image_input_cost_per_1m: float = IMAGE_INPUT_COST_PER_1M
 
     def __init__(
         self,
@@ -332,6 +346,17 @@ class BaseRealtimeHandler(AsyncStreamHandler):
             input_transcript.deltas = [delta]
         else:
             input_transcript.deltas.append(delta)
+
+    def _compute_response_cost(self, usage: Any) -> float:
+        """Compute response cost using this backend's pricing."""
+        return _compute_response_cost(
+            usage,
+            audio_input_cost_per_1m=self.audio_input_cost_per_1m,
+            audio_output_cost_per_1m=self.audio_output_cost_per_1m,
+            text_input_cost_per_1m=self.text_input_cost_per_1m,
+            text_output_cost_per_1m=self.text_output_cost_per_1m,
+            image_input_cost_per_1m=self.image_input_cost_per_1m,
+        )
 
     async def start_up(self) -> None:
         """Start the handler with minimal retries on unexpected websocket closure."""
@@ -714,7 +739,7 @@ class BaseRealtimeHandler(AsyncStreamHandler):
                         response = getattr(event, "response", None)
                         usage = getattr(response, "usage", None) if response else None
                         if usage:
-                            cost = _compute_response_cost(usage)
+                            cost = self._compute_response_cost(usage)
                             self.cumulative_cost += cost
                             logger.debug("Cost: $%.4f | Cumulative: $%.4f", cost, self.cumulative_cost)
                         else:

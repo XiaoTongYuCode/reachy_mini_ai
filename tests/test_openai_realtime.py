@@ -1088,6 +1088,14 @@ def test_compute_response_cost(usage_kwargs: dict[str, Any], expect_positive: bo
         assert cost == 0.0
 
 
+def test_huggingface_response_cost_defaults_to_zero() -> None:
+    """Speech-to-speech should not inherit OpenAI pricing from the shared base handler."""
+    usage = _make_usage(audio_in=1000, text_in=2000, image_in=500, audio_out=800, text_out=300)
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+
+    assert handler._compute_response_cost(usage) == 0.0
+
+
 # ---- Stress test: response.create rejection + retry ----
 
 

@@ -12,8 +12,10 @@ from reachy_mini_conversation_app.base_realtime import (
     _RESPONSE_DONE_TIMEOUT,
     OPENAI_REALTIME_SAMPLE_RATE,
     BaseRealtimeHandler,
-    _compute_response_cost,
     _normalize_startup_voice,
+)
+from reachy_mini_conversation_app.base_realtime import (
+    _compute_response_cost as _compute_response_cost_with_rates,
 )
 from reachy_mini_conversation_app.tools.core_tools import get_active_tool_specs
 
@@ -21,6 +23,24 @@ from reachy_mini_conversation_app.tools.core_tools import get_active_tool_specs
 logger = logging.getLogger(__name__)
 
 __all__ = ["OpenaiRealtimeHandler", "_compute_response_cost", "_normalize_startup_voice"]
+
+OPENAI_AUDIO_INPUT_COST_PER_1M = 32.0
+OPENAI_AUDIO_OUTPUT_COST_PER_1M = 64.0
+OPENAI_TEXT_INPUT_COST_PER_1M = 4.0
+OPENAI_TEXT_OUTPUT_COST_PER_1M = 16.0
+OPENAI_IMAGE_INPUT_COST_PER_1M = 5.0
+
+
+def _compute_response_cost(usage: Any) -> float:
+    """Compute OpenAI realtime dollar cost from a response usage object."""
+    return _compute_response_cost_with_rates(
+        usage,
+        audio_input_cost_per_1m=OPENAI_AUDIO_INPUT_COST_PER_1M,
+        audio_output_cost_per_1m=OPENAI_AUDIO_OUTPUT_COST_PER_1M,
+        text_input_cost_per_1m=OPENAI_TEXT_INPUT_COST_PER_1M,
+        text_output_cost_per_1m=OPENAI_TEXT_OUTPUT_COST_PER_1M,
+        image_input_cost_per_1m=OPENAI_IMAGE_INPUT_COST_PER_1M,
+    )
 
 
 class OpenaiRealtimeHandler(BaseRealtimeHandler):
@@ -30,6 +50,11 @@ class OpenaiRealtimeHandler(BaseRealtimeHandler):
     realtime_sample_rate = OPENAI_REALTIME_SAMPLE_RATE
     requires_api_key = True
     refresh_client_on_reconnect = False
+    audio_input_cost_per_1m = OPENAI_AUDIO_INPUT_COST_PER_1M
+    audio_output_cost_per_1m = OPENAI_AUDIO_OUTPUT_COST_PER_1M
+    text_input_cost_per_1m = OPENAI_TEXT_INPUT_COST_PER_1M
+    text_output_cost_per_1m = OPENAI_TEXT_OUTPUT_COST_PER_1M
+    image_input_cost_per_1m = OPENAI_IMAGE_INPUT_COST_PER_1M
 
     def _response_done_timeout(self) -> float:
         """Return the response completion timeout."""
