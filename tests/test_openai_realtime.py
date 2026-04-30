@@ -612,6 +612,7 @@ async def test_response_sender_retries_when_active_response_error_uses_type_only
     That should still take the retry path and must not be surfaced as a user-facing error.
     """
     caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(base_rt_mod, "_RESPONSE_REJECTION_RETRY_DELAY", 0.01)
     monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
     monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=OPENAI_DEFAULT_VOICE: "alloy")
     monkeypatch.setattr(rt_mod, "get_active_tool_specs", lambda _: [])
@@ -746,6 +747,7 @@ async def test_response_sender_retries_on_active_response_rejection(monkeypatch:
     processing, not mocked out.
     """
     caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(base_rt_mod, "_RESPONSE_REJECTION_RETRY_DELAY", 0.01)
 
     FakeCCE = type("FakeCCE", (Exception,), {})
     monkeypatch.setattr(base_rt_mod, "ConnectionClosedError", FakeCCE)

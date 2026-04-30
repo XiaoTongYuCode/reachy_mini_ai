@@ -44,6 +44,7 @@ from reachy_mini_conversation_app.tools.background_tool_manager import (
 logger = logging.getLogger(__name__)
 
 _RESPONSE_DONE_TIMEOUT: Final[float] = 30.0
+_RESPONSE_REJECTION_RETRY_DELAY: Final[float] = 0.5
 
 
 class InputTranscriptChunksByItem(BaseModel):
@@ -508,6 +509,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         logger.debug("response.create rejected %d times; giving up", attempts)
                         break
                     logger.debug("response.create was rejected; retrying (%d/%d)", attempts, max_retries)
+                    await asyncio.sleep(_RESPONSE_REJECTION_RETRY_DELAY)
                     continue
 
                 try:
