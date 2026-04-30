@@ -3,6 +3,7 @@ import sys
 import logging
 from pathlib import Path
 from dataclasses import dataclass
+from urllib.parse import urlsplit, parse_qsl, urlunsplit
 from importlib.resources import files
 
 from dotenv import find_dotenv, load_dotenv
@@ -71,7 +72,6 @@ HF_AVAILABLE_VOICES: list[str] = [
     "Uncle_Fu",
     "Vivian",
 ]
-HF_DEFAULT_VOICE = "Aiden"
 
 # Voices supported by the Gemini Live API
 GEMINI_AVAILABLE_VOICES: list[str] = [
@@ -93,15 +93,27 @@ HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
 HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
 HF_LOCAL_CONNECTION_MODE = "local"
 HF_DEPLOYED_CONNECTION_MODE = "deployed"
-DEFAULT_HF_REALTIME_CONNECTION_MODE = HF_DEPLOYED_CONNECTION_MODE
-# App-managed Hugging Face server allocator. This is intentionally not read
-# from the environment; users who need a custom target should use
-# HF_REALTIME_CONNECTION_MODE=local with HF_REALTIME_WS_URL.
-DEFAULT_HF_REALTIME_SESSION_URL = "https://v8si2gztnaqwjvf2.us-east-1.aws.endpoints.huggingface.cloud/session"
+
+
+@dataclass(frozen=True)
+class HFBackendDefaults:
+    """Defaults for the Hugging Face realtime backend."""
+
+    connection_mode: str = HF_DEPLOYED_CONNECTION_MODE
+    # App-managed Hugging Face server allocator. This is intentionally not read
+    # from the environment; users who need a custom target should use
+    # HF_REALTIME_CONNECTION_MODE=local with HF_REALTIME_WS_URL.
+    session_url: str = "https://v8si2gztnaqwjvf2.us-east-1.aws.endpoints.huggingface.cloud/session"
+    voice: str = "Aiden"
+    model_name: str = ""
+    direct_port: int = 8765
+
+
+HF_DEFAULTS = HFBackendDefaults()
 DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
-    HF_BACKEND: "",
+    HF_BACKEND: HF_DEFAULTS.model_name,
 }
 BACKEND_LABEL_BY_PROVIDER = {
     OPENAI_BACKEND: "OpenAI Realtime",
@@ -111,7 +123,7 @@ BACKEND_LABEL_BY_PROVIDER = {
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
     GEMINI_BACKEND: "Kore",
-    HF_BACKEND: HF_DEFAULT_VOICE,
+    HF_BACKEND: HF_DEFAULTS.voice,
 }
 
 logger = logging.getLogger(__name__)
@@ -204,6 +216,66 @@ class HFConnectionSelection:
     direct_ws_url: str | None = None
 
 
+@dataclass(frozen=True)
+class HFRealtimeURLParts:
+    """Parsed Hugging Face realtime URL components used by UI and client setup."""
+
+    base_url: str
+    websocket_base_url: str
+    connect_query: dict[str, str]
+    host: str | None
+    port: int | None
+    has_realtime_path: bool
+
+
+def parse_hf_realtime_url(realtime_url: str) -> HFRealtimeURLParts:
+    """Parse a Hugging Face realtime URL into OpenAI-compatible client endpoints."""
+    parsed = urlsplit(realtime_url)
+    scheme = parsed.scheme.lower()
+    if scheme not in {"ws", "wss", "http", "https"}:
+        raise ValueError(
+            "Expected Hugging Face realtime URL to start with ws://, wss://, http://, or https://, "
+            f"got: {realtime_url}"
+        )
+
+    path = parsed.path.rstrip("/")
+    has_realtime_path = path.endswith("/realtime")
+    if has_realtime_path:
+        base_path = path[: -len("/realtime")]
+    else:
+        base_path = path
+
+    connect_query = {key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "model"}
+    http_scheme = "https" if scheme in {"wss", "https"} else "http"
+    websocket_scheme = "wss" if scheme in {"wss", "https"} else "ws"
+    base_url = urlunsplit((http_scheme, parsed.netloc, base_path, "", ""))
+    websocket_base_url = urlunsplit((websocket_scheme, parsed.netloc, base_path, "", ""))
+    return HFRealtimeURLParts(
+        base_url=base_url,
+        websocket_base_url=websocket_base_url,
+        connect_query=connect_query,
+        host=parsed.hostname,
+        port=parsed.port or HF_DEFAULTS.direct_port,
+        has_realtime_path=has_realtime_path,
+    )
+
+
+def parse_hf_direct_target(ws_url: str | None) -> tuple[str | None, int | None]:
+    """Extract host and port from a direct Hugging Face realtime URL."""
+    if not ws_url:
+        return None, None
+    try:
+        parsed = parse_hf_realtime_url(ws_url)
+        return parsed.host, parsed.port
+    except Exception:
+        return None, None
+
+
+def build_hf_direct_ws_url(host: str, port: int) -> str:
+    """Build the direct Hugging Face realtime websocket URL used by the app."""
+    return f"ws://{host}:{port}/v1/realtime"
+
+
 def _collect_profile_names(profiles_root: Path) -> set[str]:
     """Return profile folder names from a profiles root directory."""
     if not profiles_root.exists() or not profiles_root.is_dir():
@@ -282,10 +354,10 @@ class Config:
     MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
     HF_REALTIME_CONNECTION_MODE = (
         _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
-        or DEFAULT_HF_REALTIME_CONNECTION_MODE
+        or HF_DEFAULTS.connection_mode
     )
-    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; see DEFAULT_HF_REALTIME_SESSION_URL.
-    HF_REALTIME_SESSION_URL = DEFAULT_HF_REALTIME_SESSION_URL
+    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed allocator is HF_DEFAULTS.session_url.
+    HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
     HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
     HF_HOME = os.getenv("HF_HOME", "./cache")
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
@@ -386,10 +458,10 @@ def refresh_runtime_config_from_env() -> None:
     config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
     config.HF_REALTIME_CONNECTION_MODE = (
         _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
-        or DEFAULT_HF_REALTIME_CONNECTION_MODE
+        or HF_DEFAULTS.connection_mode
     )
-    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; see DEFAULT_HF_REALTIME_SESSION_URL.
-    config.HF_REALTIME_SESSION_URL = DEFAULT_HF_REALTIME_SESSION_URL
+    # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed allocator is HF_DEFAULTS.session_url.
+    config.HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
     config.HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
 

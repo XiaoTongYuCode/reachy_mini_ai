@@ -17,7 +17,6 @@ import asyncio
 import logging
 from typing import List, Optional
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastrtc import AdditionalOutputs, audio_to_float32
 from scipy.signal import resample
@@ -37,7 +36,9 @@ from reachy_mini_conversation_app.config import (
     get_backend_choice,
     get_hf_session_url,
     get_hf_direct_ws_url,
+    build_hf_direct_ws_url,
     has_hf_realtime_target,
+    parse_hf_direct_target,
     get_model_name_for_backend,
     get_hf_connection_selection,
     refresh_runtime_config_from_env,
@@ -93,24 +94,6 @@ def _estimate_pending_playback_seconds(robot: ReachyMini) -> float:
         return 0.0
 
     return max(0.0, pending_ns / 1e9)
-
-
-def _parse_direct_hf_target(ws_url: str | None) -> tuple[str | None, int | None]:
-    """Extract host and port from a direct Hugging Face websocket URL."""
-    if not ws_url:
-        return None, None
-    try:
-        parsed = urlsplit(ws_url)
-        host = parsed.hostname
-        port = parsed.port or 8765
-        return host, port
-    except Exception:
-        return None, None
-
-
-def _build_direct_hf_ws_url(host: str, port: int) -> str:
-    """Build the direct Hugging Face websocket URL used by the app."""
-    return f"ws://{host}:{port}/v1/realtime"
 
 
 class LocalStream:
@@ -282,7 +265,7 @@ class LocalStream:
         self._persist_env_values(
             {
                 HF_REALTIME_CONNECTION_MODE_ENV: HF_LOCAL_CONNECTION_MODE,
-                HF_REALTIME_WS_URL_ENV: _build_direct_hf_ws_url(host, port),
+                HF_REALTIME_WS_URL_ENV: build_hf_direct_ws_url(host, port),
             }
         )
 
@@ -388,7 +371,7 @@ class LocalStream:
             has_gemini_key = self._has_required_key(GEMINI_BACKEND)
             hf_session_url = get_hf_session_url()
             hf_ws_url = get_hf_direct_ws_url()
-            hf_direct_host, hf_direct_port = _parse_direct_hf_target(hf_ws_url)
+            hf_direct_host, hf_direct_port = parse_hf_direct_target(hf_ws_url)
             has_hf_session_url = bool(hf_session_url)
             has_hf_ws_url = bool(hf_ws_url)
             hf_connection_selection = get_hf_connection_selection()
@@ -470,7 +453,7 @@ class LocalStream:
                 hf_selection = get_hf_connection_selection()
                 hf_mode = (payload.hf_mode or hf_selection.mode).strip().lower()
                 if hf_mode == HF_LOCAL_CONNECTION_MODE:
-                    existing_host, existing_port = _parse_direct_hf_target(hf_selection.direct_ws_url)
+                    existing_host, existing_port = parse_hf_direct_target(hf_selection.direct_ws_url)
                     host = (payload.hf_host or "").strip() or existing_host or ""
                     if not host:
                         return JSONResponse({"ok": False, "error": "empty_hf_host"}, status_code=400)

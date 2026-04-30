@@ -1,6 +1,5 @@
 import logging
 from typing import Any
-from urllib.parse import urlsplit, parse_qsl, urlunsplit
 
 import httpx
 from openai import AsyncOpenAI
@@ -19,6 +18,7 @@ from reachy_mini_conversation_app.config import (
     HF_LOCAL_CONNECTION_MODE,
     config,
     get_hf_direct_ws_url,
+    parse_hf_realtime_url,
     get_hf_connection_selection,
 )
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
@@ -38,31 +38,13 @@ def _build_openai_compatible_client_from_realtime_url(
     api_key: str | None,
 ) -> tuple[AsyncOpenAI, dict[str, str]]:
     """Build an OpenAI-compatible realtime client from a direct websocket/base URL."""
-    parsed = urlsplit(realtime_url)
-    scheme = parsed.scheme.lower()
-    if scheme not in {"ws", "wss", "http", "https"}:
-        raise ValueError(
-            "Expected Hugging Face realtime URL to start with ws://, wss://, http://, or https://, "
-            f"got: {realtime_url}"
-        )
-
-    path = parsed.path.rstrip("/")
-    if path.endswith("/realtime"):
-        base_path = path[: -len("/realtime")]
-    else:
-        base_path = path
-
-    connect_query = {key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "model"}
-    http_scheme = "https" if scheme in {"wss", "https"} else "http"
-    websocket_scheme = "wss" if scheme in {"wss", "https"} else "ws"
-    base_url = urlunsplit((http_scheme, parsed.netloc, base_path, "", ""))
-    websocket_base_url = urlunsplit((websocket_scheme, parsed.netloc, base_path, "", ""))
+    parsed = parse_hf_realtime_url(realtime_url)
     client = AsyncOpenAI(
         api_key=api_key or "DUMMY",
-        base_url=base_url,
-        websocket_base_url=websocket_base_url,
+        base_url=parsed.base_url,
+        websocket_base_url=parsed.websocket_base_url,
     )
-    return client, connect_query
+    return client, parsed.connect_query
 
 
 class HFNativeRateAudioPCM(TypedDict):
@@ -167,9 +149,8 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         if not isinstance(connect_url, str) or not connect_url:
             raise RuntimeError(f"Session allocator response did not contain a valid connect_url: {payload!r}")
 
-        parsed = urlsplit(connect_url)
-        path = parsed.path.rstrip("/")
-        if not path.endswith("/realtime"):
+        parsed_connect_url = parse_hf_realtime_url(connect_url)
+        if not parsed_connect_url.has_realtime_path:
             raise ValueError(f"Expected realtime connect URL ending with /realtime, got: {connect_url}")
 
         logger.info("Allocated realtime session %s", payload.get("session_id") or "<unknown>")
