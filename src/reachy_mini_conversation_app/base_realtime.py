@@ -7,7 +7,6 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Final, Tuple, Literal, ClassVar, Optional
-from pathlib import Path
 from datetime import datetime
 
 import numpy as np
@@ -344,21 +343,16 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
             cost += (getattr(out, "text_tokens", 0) or 0) * self.TEXT_OUTPUT_COST_PER_1M / 1e6
         return cost
 
+    async def _prepare_startup_credentials(self) -> None:
+        """Let providers collect any startup credentials they need."""
+
+    def _persist_credentials_if_needed(self) -> None:
+        """Let providers persist credentials after a successful session update."""
+
     async def start_up(self) -> None:
         """Start the handler with minimal retries on unexpected websocket closure."""
-        openai_api_key = config.OPENAI_API_KEY
-        if self.gradio_mode and self.REQUIRES_API_KEY and not openai_api_key:
-            # api key was not found in .env or in the environment variables
-            await self.wait_for_args()  # type: ignore[no-untyped-call]
-            args = list(self.latest_args)
-            textbox_api_key = args[3] if len(args[3]) > 0 else None
-            if textbox_api_key is not None:
-                openai_api_key = textbox_api_key
-                self._key_source = "textbox"
-                self._provided_api_key = textbox_api_key
-            else:
-                openai_api_key = config.OPENAI_API_KEY
-        self.client = await self._build_realtime_client(api_key=openai_api_key)
+        await self._prepare_startup_credentials()
+        self.client = await self._build_realtime_client()
 
         max_attempts = 3
         for attempt in range(1, max_attempts + 1):
@@ -650,9 +644,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                     getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
                     self.get_current_voice(),
                 )
-                # If we reached here, the session update succeeded which implies the API key worked.
-                # Persist the key to a newly created .env (copied from .env.example) if needed.
-                self._persist_api_key_if_needed()
+                self._persist_credentials_if_needed()
             except Exception:
                 logger.exception("Realtime session.update failed; aborting startup")
                 return
@@ -1006,70 +998,3 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 tool_choice="required",
             ),
         )
-
-    def _persist_api_key_if_needed(self) -> None:
-        """Persist the API key into `.env` inside `instance_path/` when appropriate.
-
-        - Only runs in Gradio mode when key came from the textbox and is non-empty.
-        - Only saves if `self.instance_path` is not None.
-        - Writes `.env` to `instance_path/.env` (does not overwrite if it already exists).
-        - If `instance_path/.env.example` exists, copies its contents while overriding OPENAI_API_KEY.
-        """
-        try:
-            if not self.gradio_mode:
-                logger.warning("Not in Gradio mode; skipping API key persistence.")
-                return
-
-            if self._key_source != "textbox":
-                logger.info("API key not provided via textbox; skipping persistence.")
-                return
-
-            key = (self._provided_api_key or "").strip()
-            if not key:
-                logger.warning("No API key provided via textbox; skipping persistence.")
-                return
-            if self.instance_path is None:
-                logger.warning("Instance path is None; cannot persist API key.")
-                return
-
-            # Update the current process environment for downstream consumers
-            try:
-                import os
-
-                os.environ["OPENAI_API_KEY"] = key
-            except Exception:  # best-effort
-                pass
-
-            target_dir = Path(self.instance_path)
-            env_path = target_dir / ".env"
-            if env_path.exists():
-                # Respect existing user configuration
-                logger.info(".env already exists at %s; not overwriting.", env_path)
-                return
-
-            example_path = target_dir / ".env.example"
-            content_lines: list[str] = []
-            if example_path.exists():
-                try:
-                    content = example_path.read_text(encoding="utf-8")
-                    content_lines = content.splitlines()
-                except Exception as e:
-                    logger.warning("Failed to read .env.example at %s: %s", example_path, e)
-
-            # Replace or append the OPENAI_API_KEY line
-            replaced = False
-            for i, line in enumerate(content_lines):
-                if line.strip().startswith("OPENAI_API_KEY="):
-                    content_lines[i] = f"OPENAI_API_KEY={key}"
-                    replaced = True
-                    break
-            if not replaced:
-                content_lines.append(f"OPENAI_API_KEY={key}")
-
-            # Ensure file ends with newline
-            final_text = "\n".join(content_lines) + "\n"
-            env_path.write_text(final_text, encoding="utf-8")
-            logger.info("Created %s and stored OPENAI_API_KEY for future runs.", env_path)
-        except Exception as e:
-            # Never crash the app for QoL persistence; just log.
-            logger.warning("Could not persist OPENAI_API_KEY to .env: %s", e)

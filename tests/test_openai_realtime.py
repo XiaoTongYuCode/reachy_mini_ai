@@ -734,10 +734,36 @@ async def test_start_up_retries_on_abrupt_close(monkeypatch: Any, caplog: Any) -
 
 
 @pytest.mark.asyncio
+async def test_start_up_openai_gradio_collects_textbox_api_key(monkeypatch: Any) -> None:
+    """OpenAI should own Gradio textbox credential collection."""
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", None)
+
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
+    handler = rt_mod.OpenaiRealtimeHandler(deps, gradio_mode=True)
+    handler.latest_args = ["profile", "voice", "unused", "sk-textbox-secret"]
+
+    build_client = AsyncMock(return_value=MagicMock())
+    run_realtime_session = AsyncMock(return_value=None)
+    wait_for_args = AsyncMock(return_value=None)
+
+    monkeypatch.setattr(handler, "_build_realtime_client", build_client)
+    monkeypatch.setattr(handler, "_run_realtime_session", run_realtime_session)
+    monkeypatch.setattr(handler, "wait_for_args", wait_for_args)
+
+    await handler.start_up()
+
+    wait_for_args.assert_awaited_once()
+    build_client.assert_awaited_once_with()
+    run_realtime_session.assert_awaited_once()
+    assert handler._provided_api_key == "sk-textbox-secret"
+
+
+@pytest.mark.asyncio
 async def test_start_up_hf_gradio_does_not_wait_for_api_key(monkeypatch: Any) -> None:
     """Hugging Face backend should not wait for gradio key input."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
-    monkeypatch.setattr(config, "OPENAI_API_KEY", None)
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-openai-secret")
 
     deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock())
     handler = hf_mod.HuggingFaceRealtimeHandler(deps, gradio_mode=True)
@@ -753,7 +779,7 @@ async def test_start_up_hf_gradio_does_not_wait_for_api_key(monkeypatch: Any) ->
     await handler.start_up()
 
     wait_for_args.assert_not_awaited()
-    build_client.assert_awaited_once_with(api_key=None)
+    build_client.assert_awaited_once_with()
     run_realtime_session.assert_awaited_once()
 
 
@@ -923,6 +949,8 @@ async def test_build_realtime_client_uses_direct_hf_ws_url(monkeypatch: Any) -> 
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
     monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", "local")
     monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-openai-secret")
+    monkeypatch.setattr(config, "HF_TOKEN", None)
     monkeypatch.setattr(
         config,
         "HF_REALTIME_WS_URL",
@@ -931,7 +959,7 @@ async def test_build_realtime_client_uses_direct_hf_ws_url(monkeypatch: Any) -> 
 
     handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
 
-    client = await handler._build_realtime_client()
+    client = await handler._build_realtime_client(api_key="sk-openai-secret")
 
     assert client is not None
     assert captured_client_kwargs["api_key"] == "DUMMY"
@@ -982,6 +1010,8 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
     monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", "deployed")
     monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
     monkeypatch.setattr(config, "HF_REALTIME_WS_URL", "ws://127.0.0.1:8765/v1/realtime")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-openai-secret")
+    monkeypatch.setattr(config, "HF_TOKEN", "hf-secret")
 
     handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
 
@@ -989,6 +1019,7 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
 
     assert client is not None
     assert requested_session_urls == ["https://lb.example.test/session"]
+    assert captured_client_kwargs["api_key"] == "hf-secret"
     assert captured_client_kwargs["base_url"] == "https://hf.example.test/v1"
     assert captured_client_kwargs["websocket_base_url"] == "wss://hf.example.test/v1"
     assert handler._realtime_connect_query == {"session_token": "allocated"}

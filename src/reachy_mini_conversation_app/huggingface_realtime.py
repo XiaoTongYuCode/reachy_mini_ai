@@ -144,7 +144,9 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
 
     async def _build_realtime_client(self, api_key: str | None = None) -> AsyncOpenAI:
         """Build the Hugging Face OpenAI-compatible realtime client."""
-        resolved_api_key = (api_key or self._provided_api_key or config.OPENAI_API_KEY or "").strip()
+        if api_key:
+            logger.debug("Ignoring non-Hugging Face api_key argument for Hugging Face realtime client.")
+        resolved_api_key = (config.HF_TOKEN or "").strip()
         connection_selection = get_hf_connection_selection()
         direct_realtime_url = get_hf_direct_ws_url()
         if connection_selection.mode == HF_LOCAL_CONNECTION_MODE:
