@@ -43,7 +43,6 @@ def _make_usage(
     return usage
 
 
-
 @pytest.mark.asyncio
 async def test_partial_transcription_uses_latest_snapshot(monkeypatch: Any) -> None:
     """Partial transcription snapshots should replace older snapshots for the same item."""
@@ -137,7 +136,6 @@ async def test_partial_transcription_uses_latest_snapshot(monkeypatch: Any) -> N
 
     assert handler.input_transcript_chunks_by_item.item_id == "item-1"
     assert handler.input_transcript_chunks_by_item.deltas == ["Hey, how are you?"]
-
 
 
 @pytest.mark.asyncio
@@ -240,7 +238,6 @@ async def test_output_audio_delta_passes_output_sample_rate_to_head_wobbler(monk
     head_wobbler.request_reset_after_current_audio.assert_called_once()
 
 
-
 @pytest.mark.asyncio
 async def test_emit_skips_idle_signal_while_response_active(monkeypatch: Any) -> None:
     """Idle tools should not trigger while a response is still active."""
@@ -261,7 +258,6 @@ async def test_emit_skips_idle_signal_while_response_active(monkeypatch: Any) ->
     send_idle_signal.assert_not_awaited()
 
 
-
 def test_handler_uses_hf_startup_voice_at_startup(monkeypatch: Any) -> None:
     """Hugging Face startup should restore persisted HF voices."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
@@ -272,7 +268,6 @@ def test_handler_uses_hf_startup_voice_at_startup(monkeypatch: Any) -> None:
     )
 
     assert handler.get_current_voice() == "Aiden"
-
 
 
 @pytest.mark.asyncio
@@ -297,7 +292,6 @@ async def test_start_up_hf_gradio_does_not_wait_for_api_key(monkeypatch: Any) ->
     wait_for_args.assert_not_awaited()
     build_client.assert_awaited_once_with()
     run_realtime_session.assert_awaited_once()
-
 
 
 @pytest.mark.asyncio
@@ -377,7 +371,6 @@ async def test_run_realtime_session_uses_default_voice_for_lb_allocated_sessions
     assert output["voice"] == HF_DEFAULT_VOICE
 
 
-
 @pytest.mark.asyncio
 async def test_run_realtime_session_passes_allocated_session_query(monkeypatch: Any) -> None:
     """Hugging Face sessions must forward the allocated session token to the websocket connect call."""
@@ -450,7 +443,6 @@ async def test_run_realtime_session_passes_allocated_session_query(monkeypatch: 
     assert captured_connect["extra_query"] == {"session_token": "abc123"}
 
 
-
 @pytest.mark.asyncio
 async def test_build_realtime_client_uses_direct_hf_ws_url(monkeypatch: Any) -> None:
     """Hugging Face direct websocket mode should bypass the session allocator."""
@@ -485,7 +477,6 @@ async def test_build_realtime_client_uses_direct_hf_ws_url(monkeypatch: Any) -> 
     assert captured_client_kwargs["base_url"] == "http://127.0.0.1:8765/v1"
     assert captured_client_kwargs["websocket_base_url"] == "ws://127.0.0.1:8765/v1"
     assert handler._realtime_connect_query == {"session_token": "abc123"}
-
 
 
 @pytest.mark.asyncio
@@ -545,7 +536,6 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
     assert handler._realtime_connect_query == {"session_token": "allocated"}
 
 
-
 @pytest.mark.asyncio
 async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(monkeypatch: Any) -> None:
     """Live personality updates should honor the selected Qwen CustomVoice speaker."""
@@ -573,7 +563,6 @@ async def test_apply_personality_uses_selected_voice_for_lb_allocated_sessions(m
     session = captured_update["session"]
     assert session["instructions"] == "new instructions"
     assert session["audio"]["output"]["voice"] == "Serena"
-
 
 
 def test_huggingface_response_cost_defaults_to_zero() -> None:

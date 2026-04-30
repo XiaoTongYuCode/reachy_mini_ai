@@ -324,6 +324,8 @@ async def test_user_speech_events_reset_idle_timer(monkeypatch: Any) -> None:
 
     assert handler.last_activity_time > previous_activity_time
     movement_manager.set_listening.assert_any_call(True)
+
+
 @pytest.mark.asyncio
 async def test_apply_personality_preserves_manual_voice_override(monkeypatch: Any) -> None:
     """Applying a profile should not discard a voice manually selected in the current session."""
@@ -357,6 +359,8 @@ def test_handler_uses_startup_voice_at_startup(monkeypatch: Any) -> None:
     )
 
     assert handler.get_current_voice() == "shimmer"
+
+
 def test_copy_preserves_current_voice_override(monkeypatch: Any) -> None:
     """Copied OpenAI handlers should keep the current voice override."""
     monkeypatch.setattr(config, "BACKEND_PROVIDER", "openai")
@@ -524,6 +528,8 @@ async def test_start_up_openai_gradio_collects_textbox_api_key(monkeypatch: Any)
     build_client.assert_awaited_once_with()
     run_realtime_session.assert_awaited_once()
     assert handler._provided_api_key == "sk-textbox-secret"
+
+
 @pytest.mark.asyncio
 async def test_handler_uses_openai_sample_rate_for_openai_backend(monkeypatch: Any) -> None:
     """OpenAI backend should keep the 24 kHz realtime audio configuration."""
@@ -533,6 +539,8 @@ async def test_handler_uses_openai_sample_rate_for_openai_backend(monkeypatch: A
 
     assert handler.input_sample_rate == 24000
     assert handler.output_sample_rate == 24000
+
+
 # ---- Cost calculation tests ----
 
 
@@ -588,6 +596,8 @@ def test_compute_response_cost(usage_kwargs: dict[str, Any], expect_positive: bo
         assert cost > 0
     else:
         assert cost == 0.0
+
+
 # ---- Stress test: response.create rejection + retry ----
 
 

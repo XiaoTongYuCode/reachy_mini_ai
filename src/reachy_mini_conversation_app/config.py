@@ -353,8 +353,7 @@ class Config:
     )
     MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
     HF_REALTIME_CONNECTION_MODE = (
-        _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
-        or HF_DEFAULTS.connection_mode
+        _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
     )
     # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed allocator is HF_DEFAULTS.session_url.
     HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
@@ -457,8 +456,7 @@ def refresh_runtime_config_from_env() -> None:
     )
     config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
     config.HF_REALTIME_CONNECTION_MODE = (
-        _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV))
-        or HF_DEFAULTS.connection_mode
+        _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
     )
     # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed allocator is HF_DEFAULTS.session_url.
     config.HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
