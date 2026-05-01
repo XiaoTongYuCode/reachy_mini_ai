@@ -137,8 +137,9 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         if direct_realtime_url:
             logger.info("HF_REALTIME_CONNECTION_MODE=deployed; ignoring HF_REALTIME_WS_URL.")
 
+        allocator_headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
         async with httpx.AsyncClient(timeout=10.0) as http_client:
-            response = await http_client.post(session_url)
+            response = await http_client.post(session_url, headers=allocator_headers)
             response.raise_for_status()
             payload = response.json()
 

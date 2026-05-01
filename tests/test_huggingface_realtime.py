@@ -486,6 +486,7 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
     """Explicit deployed mode should let .env recover from a stale local websocket URL."""
     captured_client_kwargs: dict[str, Any] = {}
     requested_session_urls: list[str] = []
+    requested_session_headers: list[dict[str, str] | None] = []
 
     class FakeClient:
         def __init__(self, **kwargs: Any) -> None:
@@ -511,8 +512,9 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
         async def __aexit__(self, *_args: Any) -> bool:
             return False
 
-        async def post(self, url: str) -> FakeResponse:
+        async def post(self, url: str, headers: dict[str, str] | None = None) -> FakeResponse:
             requested_session_urls.append(url)
+            requested_session_headers.append(headers)
             return FakeResponse()
 
     monkeypatch.setattr(hf_mod, "AsyncOpenAI", FakeClient)
@@ -530,10 +532,63 @@ async def test_build_realtime_client_uses_deployed_mode_even_when_direct_hf_ws_u
 
     assert client is not None
     assert requested_session_urls == ["https://lb.example.test/session"]
+    assert requested_session_headers == [{"Authorization": "Bearer hf-secret"}]
     assert captured_client_kwargs["api_key"] == "hf-secret"
     assert captured_client_kwargs["base_url"] == "https://hf.example.test/v1"
     assert captured_client_kwargs["websocket_base_url"] == "wss://hf.example.test/v1"
     assert handler._realtime_connect_query == {"session_token": "allocated"}
+
+
+@pytest.mark.asyncio
+async def test_build_realtime_client_does_not_send_openai_key_to_hf_allocator(monkeypatch: Any) -> None:
+    """Hugging Face allocator auth should use HF_TOKEN only."""
+    captured_client_kwargs: dict[str, Any] = {}
+    requested_session_headers: list[dict[str, str] | None] = []
+
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_client_kwargs.update(kwargs)
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, str]:
+            return {
+                "session_id": "session-123",
+                "connect_url": "wss://hf.example.test/v1/realtime?session_token=allocated",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *_args: Any) -> bool:
+            return False
+
+        async def post(self, _url: str, headers: dict[str, str] | None = None) -> FakeResponse:
+            requested_session_headers.append(headers)
+            return FakeResponse()
+
+    monkeypatch.setattr(hf_mod, "AsyncOpenAI", FakeClient)
+    monkeypatch.setattr(hf_mod.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(config, "BACKEND_PROVIDER", "huggingface")
+    monkeypatch.setattr(config, "HF_REALTIME_CONNECTION_MODE", "deployed")
+    monkeypatch.setattr(config, "HF_REALTIME_SESSION_URL", "https://lb.example.test/session")
+    monkeypatch.setattr(config, "HF_REALTIME_WS_URL", None)
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-openai-secret")
+    monkeypatch.setattr(config, "HF_TOKEN", None)
+
+    handler = HuggingFaceRealtimeHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+
+    client = await handler._build_realtime_client()
+
+    assert client is not None
+    assert requested_session_headers == [None]
+    assert captured_client_kwargs["api_key"] == "DUMMY"
 
 
 @pytest.mark.asyncio
