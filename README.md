@@ -193,6 +193,36 @@ reachy-mini-conversation-app
 
 The app runs in console mode by default. Add `--gradio` to launch a web UI at http://127.0.0.1:7860/ (required for simulation mode). Vision and head-tracking options are described in the CLI table below.
 
+### Official simulation / virtual test environment
+
+Reachy Mini already provides an official MuJoCo simulation through the `reachy-mini` SDK. Use it instead of an app-local mock robot when you need a hardware-free test environment:
+
+```bash
+# Install the official simulation extra in your active environment
+uv pip install "reachy-mini[mujoco]"
+
+# Terminal 1: start the official simulated robot daemon
+reachy-mini-daemon --sim
+
+# Terminal 2: run the conversation app against that local daemon
+reachy-mini-conversation-app --no-camera --gradio
+```
+
+On macOS, MuJoCo may need its launcher instead of the regular daemon entrypoint:
+
+```bash
+mjpython -m reachy_mini.daemon.app.main --sim
+```
+
+For a lighter daemon-level smoke test without MuJoCo physics, the SDK also exposes `--mockup-sim`:
+
+```bash
+reachy-mini-daemon --mockup-sim
+reachy-mini-conversation-app --no-camera --gradio
+```
+
+When the app connects to an official simulated daemon, it detects `simulation_enabled` or `mockup_sim_enabled` from the SDK status and automatically enables Gradio if needed.
+
 ### CLI options
 
 | Option | Default | Description |
@@ -201,7 +231,6 @@ The app runs in console mode by default. Add `--gradio` to launch a web UI at ht
 | `--no-camera` | `False` | Run without camera capture or head tracking. |
 | `--local-vision` | `False` | Use the local vision model (SmolVLM2) for camera-tool requests instead of the selected realtime backend. Requires `local_vision` extra to be installed. |
 | `--gradio` | `False` | Launch the Gradio web UI. Without this flag, runs in console mode. Required when running in simulation mode. |
-| `--virtual` | `False` | Start with a hardware-free virtual Reachy Mini test double. This is intended for local smoke tests and CI-style checks without a daemon or physical robot; it is automatically treated as simulation mode. |
 | `--robot-name` | `None` | Optional. Connect to a specific robot by name when running multiple daemons on the same subnet. See [Multiple robots on the same subnet](#advanced-features). |
 | `--debug` | `False` | Enable verbose logging for troubleshooting. |
 
@@ -219,9 +248,6 @@ reachy-mini-conversation-app --local-vision
 
 # Audio-only conversation (no camera)
 reachy-mini-conversation-app --no-camera
-
-# Hardware-free virtual test environment
-reachy-mini-conversation-app --virtual --no-camera --gradio
 
 # Launch with Gradio web interface
 reachy-mini-conversation-app --gradio

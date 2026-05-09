@@ -6,7 +6,7 @@ import time
 import asyncio
 import argparse
 import threading
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 import gradio as gr
@@ -106,33 +106,28 @@ def run(
         logger.warning("Head tracking disabled: --no-camera flag is set. Remove --no-camera to enable head tracking.")
 
     if robot is None:
-        if getattr(args, "virtual", False):
-            from reachy_mini_conversation_app.virtual_robot import create_virtual_reachy_mini
+        try:
+            robot_kwargs = {}
+            if args.robot_name is not None:
+                robot_kwargs["robot_name"] = args.robot_name
 
-            robot = cast(ReachyMini, create_virtual_reachy_mini(robot_name=args.robot_name))
-        else:
-            try:
-                robot_kwargs = {}
-                if args.robot_name is not None:
-                    robot_kwargs["robot_name"] = args.robot_name
+            logger.info("Initializing ReachyMini (SDK will auto-detect appropriate backend)")
+            robot = ReachyMini(**robot_kwargs)
 
-                logger.info("Initializing ReachyMini (SDK will auto-detect appropriate backend)")
-                robot = ReachyMini(**robot_kwargs)
+        except TimeoutError as e:
+            logger.error(f"Connection timeout: Failed to connect to Reachy Mini daemon. Details: {e}")
+            log_connection_troubleshooting(logger, args.robot_name)
+            sys.exit(1)
 
-            except TimeoutError as e:
-                logger.error(f"Connection timeout: Failed to connect to Reachy Mini daemon. Details: {e}")
-                log_connection_troubleshooting(logger, args.robot_name)
-                sys.exit(1)
+        except ConnectionError as e:
+            logger.error(f"Connection failed: Unable to establish connection to Reachy Mini. Details: {e}")
+            log_connection_troubleshooting(logger, args.robot_name)
+            sys.exit(1)
 
-            except ConnectionError as e:
-                logger.error(f"Connection failed: Unable to establish connection to Reachy Mini. Details: {e}")
-                log_connection_troubleshooting(logger, args.robot_name)
-                sys.exit(1)
-
-            except Exception as e:
-                logger.error(f"Unexpected error during robot initialization: {type(e).__name__}: {e}")
-                logger.error("Please check your configuration and try again.")
-                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Unexpected error during robot initialization: {type(e).__name__}: {e}")
+            logger.error("Please check your configuration and try again.")
+            sys.exit(1)
 
     # Auto-enable Gradio in simulation mode (both MuJoCo for daemon and mockup-sim for desktop app)
     status = robot.client.get_status()
