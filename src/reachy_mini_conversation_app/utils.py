@@ -39,6 +39,12 @@ def parse_args() -> tuple[argparse.Namespace, list]:  # type: ignore
         help="Use local vision model instead of the selected realtime backend vision",
     )
     parser.add_argument("--gradio", default=False, action="store_true", help="Open gradio interface")
+    parser.add_argument(
+        "--virtual",
+        default=False,
+        action="store_true",
+        help="Use a hardware-free virtual Reachy Mini test environment.",
+    )
     parser.add_argument("--debug", default=False, action="store_true", help="Enable debug logging")
     parser.add_argument(
         "--robot-name",
