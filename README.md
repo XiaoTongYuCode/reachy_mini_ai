@@ -193,6 +193,36 @@ reachy-mini-conversation-app
 
 The app runs in console mode by default. Add `--gradio` to launch a web UI at http://127.0.0.1:7860/ (required for simulation mode). Vision and head-tracking options are described in the CLI table below.
 
+### Official simulation / virtual test environment
+
+Reachy Mini already provides an official MuJoCo simulation through the `reachy-mini` SDK. Use it instead of an app-local mock robot when you need a hardware-free test environment:
+
+```bash
+# Install the official simulation extra in your active environment
+uv pip install "reachy-mini[mujoco]"
+
+# Terminal 1: start the official simulated robot daemon
+reachy-mini-daemon --sim
+
+# Terminal 2: run the conversation app against that local daemon
+reachy-mini-conversation-app --no-camera --gradio
+```
+
+On macOS, MuJoCo may need its launcher instead of the regular daemon entrypoint:
+
+```bash
+mjpython -m reachy_mini.daemon.app.main --sim
+```
+
+For a lighter daemon-level smoke test without MuJoCo physics, the SDK also exposes `--mockup-sim`:
+
+```bash
+reachy-mini-daemon --mockup-sim
+reachy-mini-conversation-app --no-camera --gradio
+```
+
+When the app connects to an official simulated daemon, it detects `simulation_enabled` or `mockup_sim_enabled` from the SDK status and automatically enables Gradio if needed.
+
 ### CLI options
 
 | Option | Default | Description |
