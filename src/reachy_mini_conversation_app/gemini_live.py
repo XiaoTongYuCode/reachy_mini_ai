@@ -99,6 +99,14 @@ def _convert_schema_types(schema: Any) -> Any:
         if isinstance(t, str):
             result["type"] = type_map.get(t.lower(), t.upper())
 
+    # Gemini Live only accepts enum constraints on STRING schema fields. When an
+    # OpenAI-style schema uses numeric enum values, expose the enum as strings
+    # here and let the tool implementation parse the received string argument.
+    if "enum" in result and isinstance(result["enum"], list):
+        result["enum"] = [str(value) if not isinstance(value, str) else value for value in result["enum"]]
+        if result.get("type") != "STRING":
+            result["type"] = "STRING"
+
     # Recurse into properties
     if "properties" in result and isinstance(result["properties"], dict):
         result["properties"] = {k: _convert_schema_types(v) for k, v in result["properties"].items()}

@@ -136,6 +136,9 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `HF_HOME` | Cache directory for local Hugging Face downloads (only used with `--local-vision` flag, defaults to `./cache`). |
 | `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
+| `VOLCENGINE_WEB_SEARCH_API_KEY` | Required only for the `web_search` tool. Uses the Volcengine Web Search product APIKey endpoint, not the Ark Responses plugin. |
+| `VOLCENGINE_WEB_SEARCH_API_URL` | Optional Web Search API URL; defaults to `https://open.feedcoopapi.com/search_api/web_search`. |
+| `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | Optional timeout for each `web_search` call; defaults to `30`. |
 
 ### Hugging Face Connection Modes
 
@@ -268,6 +271,7 @@ reachy-mini-conversation-app --gradio
 | `play_emotion` | Play a recorded emotion clip via Hugging Face datasets. | Core install only. Uses the default open emotions dataset: [`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library). |
 | `stop_emotion` | Clear queued emotions. | Core install only. |
 | `idle_do_nothing` | Explicitly remain idle during an idle turn. Not intended for normal conversation turns. | Core install only. |
+| `web_search` | Search current web pages, web summaries, or images through the Volcengine Web Search product API. | Requires `VOLCENGINE_WEB_SEARCH_API_KEY`; optional `VOLCENGINE_WEB_SEARCH_API_URL` and `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`. |
 
 ## Advanced features
 

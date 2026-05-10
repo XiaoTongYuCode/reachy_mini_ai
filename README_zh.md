@@ -136,6 +136,9 @@ pip install -e .[dev]                   # 开发工具
 | `HF_HOME` | 本地 Hugging Face 下载缓存目录（仅 `--local-vision` 使用，默认 `./cache`）。 |
 | `HF_TOKEN` | 可选的 Hugging Face 访问令牌（用于受限/私有资产）。 |
 | `LOCAL_VISION_MODEL` | 本地视觉处理的 Hugging Face 模型路径（仅 `--local-vision` 使用，默认 `HuggingFaceTB/SmolVLM2-2.2B-Instruct`）。 |
+| `VOLCENGINE_WEB_SEARCH_API_KEY` | 仅 `web_search` 工具需要。使用火山引擎联网搜索产品的 APIKey 接入地址，不使用 Ark Responses 插件。 |
+| `VOLCENGINE_WEB_SEARCH_API_URL` | 可选联网搜索 API URL，默认 `https://open.feedcoopapi.com/search_api/web_search`。 |
+| `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | `web_search` 单次调用超时时间，默认 `30` 秒。 |
 
 ### Hugging Face 连接模式
 
@@ -268,6 +271,7 @@ reachy-mini-conversation-app --gradio
 | `play_emotion` | 通过 Hugging Face 数据集播放录制的情绪片段。 | 仅核心安装。默认使用开放情绪数据集：[`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library)。 |
 | `stop_emotion` | 清空已队列的情绪。 | 仅核心安装。 |
 | `idle_do_nothing` | 在空闲轮次显式保持空闲。不用于正常对话轮次。 | 仅核心安装。 |
+| `web_search` | 通过火山引擎联网搜索产品 API 搜索网页、网页总结或图片。 | 需要 `VOLCENGINE_WEB_SEARCH_API_KEY`；可选 `VOLCENGINE_WEB_SEARCH_API_URL` 和 `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`。 |
 
 ## 高级功能
 

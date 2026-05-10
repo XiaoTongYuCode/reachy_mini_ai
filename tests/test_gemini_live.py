@@ -20,6 +20,31 @@ from reachy_mini_conversation_app.tools.tool_constants import ToolState
 from reachy_mini_conversation_app.tools.background_tool_manager import ToolNotification
 
 
+def test_openai_tool_schema_numeric_enum_converts_to_gemini_string_enum_field() -> None:
+    """Gemini Live only accepts enum constraints on string schema fields."""
+    declarations = gemini_mod._openai_tool_specs_to_gemini(
+        [
+            {
+                "type": "function",
+                "name": "fake_tool",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "level": {
+                            "type": "integer",
+                            "enum": [0, 1],
+                        },
+                    },
+                },
+            },
+        ]
+    )
+
+    level_schema = declarations[0]["parameters"]["properties"]["level"]
+    assert level_schema["type"] == "STRING"
+    assert level_schema["enum"] == ["0", "1"]
+
+
 def _server_content(**kwargs: Any) -> SimpleNamespace:
     defaults = {
         "model_turn": None,
