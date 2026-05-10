@@ -31,11 +31,13 @@ from reachy_mini_conversation_app.config import (
     DEFAULT_VOICE_BY_BACKEND,
     config,
 )
+from reachy_mini_conversation_app.storage.memory import MemoryContextProvider
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.tools.core_tools import (
     ToolDependencies,
     get_active_tool_specs,
 )
+from reachy_mini_conversation_app.agent_observability import AgentMessageListLog
 from reachy_mini_conversation_app.conversation_handler import ConversationHandler
 from reachy_mini_conversation_app.camera_frame_encoding import encode_bgr_frame_as_jpeg
 from reachy_mini_conversation_app.tools.background_tool_manager import (
@@ -182,6 +184,11 @@ class GeminiLiveHandler(ConversationHandler):
         self._pending_user_transcript_chunks: list[str] = []
         self._pending_assistant_transcript_chunks: list[str] = []
         self._listening_state = False
+        self.memory_context_provider = MemoryContextProvider(getattr(deps, "memory_store", None))
+        self._memory_session_id: str | None = None
+        self._latest_memory_context = ""
+        self._memory_tasks: set[asyncio.Task[None]] = set()
+        self._agent_message_log = AgentMessageListLog(logger)
 
     def copy(self) -> "GeminiLiveHandler":
         """Create a copy of the handler."""
@@ -199,6 +206,96 @@ class GeminiLiveHandler(ConversationHandler):
         self._listening_state = listening
         self.deps.movement_manager.set_listening(listening)
 
+    def _with_memory_context(self, instructions: str) -> str:
+        if not self.memory_context_provider.enabled:
+            return instructions
+        try:
+            return self.memory_context_provider.format_session_instructions(
+                instructions,
+                relevant_context=self._latest_memory_context,
+            )
+        except Exception:
+            logger.warning("Failed to build Gemini memory context; continuing without it.", exc_info=True)
+            return instructions
+
+    async def _start_memory_session(self) -> None:
+        if not self.memory_context_provider.enabled:
+            return
+        try:
+            store = self.memory_context_provider.store
+            if store is None:
+                return
+            self._memory_session_id = await asyncio.to_thread(
+                store.create_session,
+                backend=GEMINI_BACKEND,
+                profile=getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
+            )
+        except Exception:
+            logger.warning("Failed to create Gemini memory session; transcript persistence disabled.", exc_info=True)
+            self._memory_session_id = None
+
+    async def _end_memory_session(self) -> None:
+        if not self._memory_session_id or not self.memory_context_provider.enabled:
+            return
+        try:
+            store = self.memory_context_provider.store
+            if store is not None:
+                await asyncio.to_thread(store.end_session, self._memory_session_id)
+        except Exception:
+            logger.debug("Failed to end Gemini memory session.", exc_info=True)
+        finally:
+            self._memory_session_id = None
+
+    def _schedule_memory_message(self, role: str, content: str) -> None:
+        if not self._memory_session_id or not self.memory_context_provider.enabled:
+            return
+        store = self.memory_context_provider.store
+        if store is None:
+            return
+        session_id = self._memory_session_id
+        if session_id is None:
+            return
+
+        async def _record() -> None:
+            try:
+                await asyncio.to_thread(store.add_message, session_id=session_id, role=role, content=content)
+            except Exception:
+                logger.debug("Failed to persist Gemini %s transcript.", role, exc_info=True)
+
+        task = asyncio.create_task(_record(), name=f"gemini-memory-record-{role}")
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
+
+    async def _refresh_memory_context_for_user_transcript(self, transcript: str) -> None:
+        if not self.memory_context_provider.enabled:
+            return
+        try:
+            previous_context = self._latest_memory_context
+            latest_context = await asyncio.to_thread(
+                self.memory_context_provider.search_relevant_context,
+                transcript,
+                exclude_session_id=self._memory_session_id,
+            )
+            self._agent_message_log.set_scoped_message("system", latest_context, scope="memory_context")
+            if latest_context == previous_context:
+                return
+            self._latest_memory_context = latest_context
+            if self._latest_memory_context and self.session:
+                await self.session.send_realtime_input(text=self._latest_memory_context)
+        except Exception:
+            logger.debug("Failed to refresh Gemini relevant memory context.", exc_info=True)
+
+    async def _drain_memory_tasks(self) -> None:
+        if not self._memory_tasks:
+            return
+        pending = list(self._memory_tasks)
+        try:
+            await asyncio.wait(pending, timeout=2.0)
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+
     async def _flush_transcript_chunks(self, role: str, chunks: list[str]) -> None:
         """Emit one finalized transcript message for the current turn."""
         if not chunks:
@@ -209,11 +306,16 @@ class GeminiLiveHandler(ConversationHandler):
         if not transcript:
             return
 
+        self._schedule_memory_message(role, transcript)
+        if role == "user":
+            await self._refresh_memory_context_for_user_transcript(transcript)
+        self._agent_message_log.append(role, transcript)
         await self.output_queue.put(AdditionalOutputs({"role": role, "content": transcript}))
 
     async def _mark_model_response_started(self) -> None:
         """Switch out of user-listening mode when the model begins responding."""
         await self._flush_transcript_chunks("user", self._pending_user_transcript_chunks)
+        self._agent_message_log.log_once_for_turn("Gemini model response")
         self._set_listening_state(False)
 
     async def _handle_interruption(self) -> None:
@@ -231,6 +333,7 @@ class GeminiLiveHandler(ConversationHandler):
         logger.debug("Gemini turn complete")
         await self._flush_transcript_chunks("user", self._pending_user_transcript_chunks)
         await self._flush_transcript_chunks("assistant", self._pending_assistant_transcript_chunks)
+        self._agent_message_log.reset_turn_log()
         self._set_listening_state(False)
         if self.deps.head_wobbler is not None:
             self.deps.head_wobbler.request_reset_after_current_audio()
@@ -364,7 +467,8 @@ class GeminiLiveHandler(ConversationHandler):
 
     def _build_live_config(self) -> types.LiveConnectConfig:
         """Build the LiveConnectConfig for a Gemini Live session."""
-        instructions = get_session_instructions()
+        instructions = self._with_memory_context(get_session_instructions())
+        self._agent_message_log.reset(instructions)
         voice = _resolve_gemini_voice(self._voice_override or get_session_voice())
 
         # Convert OpenAI-style tool specs to Gemini function declarations
@@ -473,6 +577,11 @@ class GeminiLiveHandler(ConversationHandler):
                     else:
                         image_bytes = bytes(b64_im)
                     await self.session.send_realtime_input(video=types.Blob(data=image_bytes, mime_type="image/jpeg"))
+                    self._agent_message_log.append(
+                        "user",
+                        [{"type": "input_image", "image_url": "<inline image bytes>"}],
+                        source="camera",
+                    )
                     logger.info("Pushed camera snapshot to Gemini via realtime video input")
                 except Exception as ve:
                     logger.warning("Failed to push camera snapshot to Gemini: %s", ve)
@@ -485,6 +594,13 @@ class GeminiLiveHandler(ConversationHandler):
                 response=tool_result,
             )
             await self.session.send_tool_response(function_responses=[function_response])
+            self._agent_message_log.append(
+                "tool",
+                tool_result,
+                call_id=bg_tool.id if isinstance(bg_tool.id, str) else str(bg_tool.id),
+                name=bg_tool.tool_name,
+            )
+            self._agent_message_log.log("Gemini tool response")
 
             await self.output_queue.put(
                 AdditionalOutputs(
@@ -553,6 +669,7 @@ class GeminiLiveHandler(ConversationHandler):
                 pass
 
             logger.info("Gemini Live session connected successfully")
+            await self._start_memory_session()
 
             video_task: asyncio.Task[None] | None = None
             try:
@@ -618,6 +735,10 @@ class GeminiLiveHandler(ConversationHandler):
                                     transcript = content.input_transcription.text
                                     logger.debug("User transcript chunk: %s", transcript)
                                     self._pending_user_transcript_chunks.append(transcript)
+                                    await self._refresh_memory_context_for_user_transcript(
+                                        "".join(self._pending_user_transcript_chunks)
+                                    )
+                                    self._agent_message_log.reset_turn_log()
                                     self._set_listening_state(True)
 
                                 # Handle output transcription (model speech)
@@ -649,6 +770,8 @@ class GeminiLiveHandler(ConversationHandler):
                     except asyncio.CancelledError:
                         pass
                 await self.tool_manager.shutdown()
+                await self._drain_memory_tasks()
+                await self._end_memory_session()
 
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:
         """Receive audio frame from microphone and send to Gemini."""
@@ -701,6 +824,8 @@ class GeminiLiveHandler(ConversationHandler):
         self._stop_event.set()
 
         await self.tool_manager.shutdown()
+        await self._drain_memory_tasks()
+        await self._end_memory_session()
 
         if self.session:
             try:
@@ -738,6 +863,9 @@ class GeminiLiveHandler(ConversationHandler):
             return
 
         await self.session.send_realtime_input(text=timestamp_msg)
+        self._agent_message_log.append("user", timestamp_msg)
+        self._agent_message_log.reset_turn_log()
+        self._agent_message_log.log("Gemini idle text input")
 
     async def get_available_voices(self) -> list[str]:
         """Return the list of available Gemini voices."""

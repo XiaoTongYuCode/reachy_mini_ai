@@ -122,7 +122,7 @@ class OpenaiRealtimeHandler(BaseRealtimeHandler):
 
     def _get_session_instructions(self) -> str:
         """Return OpenAI session instructions."""
-        return get_session_instructions()
+        return self._with_memory_context(get_session_instructions())
 
     def _get_session_voice(self, default: str | None = None) -> str:
         """Return the configured OpenAI session voice."""
@@ -140,7 +140,7 @@ class OpenaiRealtimeHandler(BaseRealtimeHandler):
             audio=RealtimeAudioConfigParam(
                 input=RealtimeAudioConfigInputParam(
                     format=AudioPCM(type="audio/pcm", rate=24000),
-                    transcription=AudioTranscriptionParam(model="gpt-4o-transcribe", language="en"),
+                    transcription=AudioTranscriptionParam(model="gpt-4o-transcribe", language="zh"),
                     turn_detection=ServerVad(type="server_vad", interrupt_response=True),
                 ),
                 output=RealtimeAudioConfigOutputParam(

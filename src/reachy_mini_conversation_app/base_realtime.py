@@ -32,7 +32,9 @@ from reachy_mini_conversation_app.config import (
     get_default_voice_for_backend,
     get_available_voices_for_backend,
 )
+from reachy_mini_conversation_app.storage.memory import MemoryContextProvider
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
+from reachy_mini_conversation_app.agent_observability import AgentMessageListLog
 from reachy_mini_conversation_app.conversation_handler import ConversationHandler
 from reachy_mini_conversation_app.tools.background_tool_manager import (
     ToolCallRoutine,
@@ -153,6 +155,13 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         # Cost tracking
         self.cumulative_cost: float = 0.0
 
+        # Persistent conversation memory. All operations are best-effort so
+        # realtime audio never depends on local storage.
+        self.memory_context_provider = MemoryContextProvider(getattr(deps, "memory_store", None))
+        self._memory_session_id: str | None = None
+        self._latest_memory_context = ""
+        self._memory_tasks: set[asyncio.Task[None]] = set()
+
         # Response-in-progress guard: the Realtime API only allows one active
         # response per conversation at a time.  A dedicated worker task
         # (_response_sender_loop) dequeues and sends one request at a time
@@ -164,6 +173,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         self._turn_user_done_at: float | None = None
         self._turn_response_created_at: float | None = None
         self._turn_first_audio_at: float | None = None
+        self._agent_message_log = AgentMessageListLog(logger)
 
     @staticmethod
     def _sanitize_tool_result_for_model(tool_name: str, tool_result: dict[str, Any]) -> dict[str, Any]:
@@ -230,6 +240,109 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
     @abstractmethod
     def _get_session_config(self, tool_specs: list[dict[str, Any]]) -> RealtimeSessionCreateRequestParam:
         """Return the backend-specific realtime session config."""
+
+    def _with_memory_context(self, instructions: str) -> str:
+        """Append model-visible long-term memory context to provider instructions."""
+        if not self.memory_context_provider.enabled:
+            return instructions
+        try:
+            return self.memory_context_provider.format_session_instructions(
+                instructions,
+                relevant_context=self._latest_memory_context,
+            )
+        except Exception:
+            logger.warning("Failed to build memory context; continuing without it.", exc_info=True)
+            return instructions
+
+    async def _start_memory_session(self) -> None:
+        if not self.memory_context_provider.enabled:
+            return
+        try:
+            store = self.memory_context_provider.store
+            if store is None:
+                return
+            self._memory_session_id = await asyncio.to_thread(
+                store.create_session,
+                backend=self.BACKEND_PROVIDER,
+                profile=getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
+            )
+        except Exception:
+            logger.warning("Failed to create memory session; transcript persistence disabled.", exc_info=True)
+            self._memory_session_id = None
+
+    async def _end_memory_session(self) -> None:
+        if not self._memory_session_id or not self.memory_context_provider.enabled:
+            return
+        try:
+            store = self.memory_context_provider.store
+            if store is not None:
+                await asyncio.to_thread(store.end_session, self._memory_session_id)
+        except Exception:
+            logger.debug("Failed to end memory session.", exc_info=True)
+        finally:
+            self._memory_session_id = None
+
+    def _schedule_memory_message(self, role: str, content: str, metadata: dict[str, Any] | None = None) -> None:
+        if not self._memory_session_id or not self.memory_context_provider.enabled:
+            return
+        store = self.memory_context_provider.store
+        if store is None:
+            return
+        session_id = self._memory_session_id
+        if session_id is None:
+            return
+
+        async def _record() -> None:
+            try:
+                await asyncio.to_thread(
+                    store.add_message,
+                    session_id=session_id,
+                    role=role,
+                    content=content,
+                    metadata=metadata or {},
+                )
+            except Exception:
+                logger.debug("Failed to persist %s transcript.", role, exc_info=True)
+
+        task = asyncio.create_task(_record(), name=f"memory-record-{role}")
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
+
+    async def _refresh_memory_context_for_user_transcript(self, transcript: str) -> None:
+        if not self.memory_context_provider.enabled:
+            return
+        try:
+            previous_context = self._latest_memory_context
+            latest_context = await asyncio.to_thread(
+                self.memory_context_provider.search_relevant_context,
+                transcript,
+                exclude_session_id=self._memory_session_id,
+            )
+            if latest_context == previous_context:
+                return
+            self._latest_memory_context = latest_context
+            if self.connection is not None:
+                instructions = self._get_session_instructions()
+                await self.connection.session.update(
+                    session=RealtimeSessionCreateRequestParam(
+                        type="realtime",
+                        instructions=instructions,
+                    ),
+                )
+                self._agent_message_log.update_system_message(instructions)
+        except Exception:
+            logger.debug("Failed to refresh relevant memory context.", exc_info=True)
+
+    async def _drain_memory_tasks(self) -> None:
+        if not self._memory_tasks:
+            return
+        pending = list(self._memory_tasks)
+        try:
+            await asyncio.wait(pending, timeout=2.0)
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
 
     async def _wait_for_output_item(self) -> Tuple[int, NDArray[np.int16]] | AdditionalOutputs | None:
         """Wait for the next output item."""
@@ -489,6 +602,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 self._last_response_rejected = False
                 self._response_started_or_rejected_event.clear()
                 try:
+                    self._agent_message_log.log("response.create", response_kwargs=kwargs)
                     await self.connection.response.create(**kwargs)
                 except Exception as e:
                     logger.debug("_response_sender_loop: send failed: %s", e)
@@ -568,6 +682,12 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         "output": json.dumps(tool_result_for_model),
                     },
                 )
+                self._agent_message_log.append(
+                    "tool",
+                    tool_result_for_model,
+                    call_id=bg_tool.id,
+                    name=bg_tool.tool_name,
+                )
 
             await self.output_queue.put(
                 AdditionalOutputs(
@@ -604,6 +724,15 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                             },
                         ],
                     },
+                )
+                self._agent_message_log.append(
+                    "user",
+                    [
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:image/jpeg;base64,{b64_im}",
+                        },
+                    ],
                 )
                 if isinstance(image_width, int) and isinstance(image_height, int):
                     logger.info(
@@ -666,6 +795,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
             try:
                 session_config = self._get_session_config(tool_specs)
                 await conn.session.update(session=session_config)
+                self._agent_message_log.reset(str(session_config.get("instructions", "")))
                 logger.info(
                     "Realtime session initialized with profile=%r voice=%r",
                     getattr(config, "REACHY_MINI_CUSTOM_PROFILE", None),
@@ -677,6 +807,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 raise
 
             logger.info("Realtime session updated successfully")
+            await self._start_memory_session()
 
             # Reset the partial-transcript accumulator for each new session
             self.input_transcript_chunks_by_item = InputTranscriptChunksByItem()
@@ -796,12 +927,19 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         self._turn_response_created_at = None
                         self._turn_first_audio_at = None
 
+                        self._schedule_memory_message("user", transcript)
+                        await self._refresh_memory_context_for_user_transcript(transcript)
+                        self._agent_message_log.append("user", transcript)
+                        self._agent_message_log.log("auto response after user transcript")
                         await self.output_queue.put(AdditionalOutputs({"role": "user", "content": transcript}))
 
                     # Handle assistant transcription
                     if event.type == "response.output_audio_transcript.done":
                         self._mark_activity("assistant_transcript_done")
                         logger.debug(f"Assistant transcript: {event.transcript}")
+                        self._schedule_memory_message("assistant", event.transcript or "")
+                        if event.transcript:
+                            self._agent_message_log.append("assistant", event.transcript)
                         await self.output_queue.put(
                             AdditionalOutputs({"role": "assistant", "content": event.transcript})
                         )
@@ -907,6 +1045,8 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
                 # Stop background tool manager tasks (listener + cleanup) in all paths.
                 await self.tool_manager.shutdown()
+                await self._drain_memory_tasks()
+                await self._end_memory_session()
 
     # Microphone receive
     async def receive(self, frame: Tuple[int, NDArray[np.int16]]) -> None:
@@ -974,6 +1114,8 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
         # Stop background tool manager tasks (listener + cleanup)
         await self.tool_manager.shutdown()
+        await self._drain_memory_tasks()
+        await self._end_memory_session()
 
         # Cancel any pending debounce task
         if self.partial_transcript_task and not self.partial_transcript_task.done():
@@ -1030,6 +1172,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 "content": [{"type": "input_text", "text": timestamp_msg}],
             },
         )
+        self._agent_message_log.append("user", timestamp_msg)
         await self._safe_response_create(
             response=RealtimeResponseCreateParamsParam(
                 instructions="You MUST respond with function calls only - no speech or text. Choose appropriate actions for idle behavior. Use idle_do_nothing only if you intentionally want no movement or sound during this idle turn.",

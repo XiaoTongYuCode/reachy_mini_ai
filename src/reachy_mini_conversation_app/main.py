@@ -98,6 +98,7 @@ def run(
             config.MODEL_NAME,
         )
 
+    from reachy_mini_conversation_app.storage.memory import MemoryStore
     from reachy_mini_conversation_app.console import LocalStream
     from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
     from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
@@ -156,6 +157,7 @@ def run(
     )
 
     head_wobbler = HeadWobbler(set_speech_offsets=movement_manager.set_speech_offsets)
+    memory_store = MemoryStore()
 
     deps = ToolDependencies(
         reachy_mini=robot,
@@ -163,6 +165,7 @@ def run(
         camera_worker=camera_worker,
         vision_processor=vision_processor,
         head_wobbler=head_wobbler,
+        memory_store=memory_store,
     )
     current_file_path = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Current file absolute path: {current_file_path}")

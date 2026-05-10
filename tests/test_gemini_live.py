@@ -2,6 +2,7 @@
 
 import base64
 import asyncio
+import logging
 from types import SimpleNamespace
 from typing import Any, Callable, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, call
@@ -12,6 +13,7 @@ from fastrtc import AdditionalOutputs
 
 import reachy_mini_conversation_app.gemini_live as gemini_mod
 import reachy_mini_conversation_app.tools.core_tools as ct_mod
+from reachy_mini_conversation_app.storage.memory import MemoryStore
 from reachy_mini_conversation_app.gemini_live import GeminiLiveHandler
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.tools.tool_constants import ToolState
@@ -185,6 +187,67 @@ async def test_gemini_turn_buffers_transcripts_and_schedules_motion_reset(
 
 
 @pytest.mark.asyncio
+async def test_gemini_logs_and_sends_memory_context_before_model_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog,
+) -> None:
+    """Gemini should retrieve historical memory as soon as input transcription arrives."""
+    monkeypatch.setattr(gemini_mod, "get_session_instructions", lambda: "test")
+    monkeypatch.setattr(gemini_mod, "get_session_voice", lambda: "Kore")
+    monkeypatch.setattr(gemini_mod, "get_active_tool_specs", lambda _: [])
+    caplog.set_level(logging.INFO, logger=gemini_mod.logger.name)
+
+    memory_store = MemoryStore(tmp_path)
+    previous_session_id = memory_store.create_session(backend="gemini", profile="default")
+    memory_store.add_message(session_id=previous_session_id, role="assistant", content="邮件已经发给 Alice。")
+
+    deps = ToolDependencies(
+        reachy_mini=SimpleNamespace(media=SimpleNamespace(audio=None)),
+        movement_manager=MagicMock(),
+        memory_store=memory_store,
+    )
+    handler = GeminiLiveHandler(deps)
+    monkeypatch.setattr(type(handler.tool_manager), "start_up", MagicMock())
+    monkeypatch.setattr(type(handler.tool_manager), "shutdown", AsyncMock())
+
+    audio_bytes = b"\x00\x00\x10\x00" * 256
+    session = _FakeSession(
+        batches=[
+            [
+                _response(
+                    _server_content(
+                        input_transcription=SimpleNamespace(text="你 之 前 有 没 有 发 过 邮 件 吗 ?"),
+                    )
+                ),
+                _response(
+                    _server_content(
+                        model_turn=SimpleNamespace(
+                            parts=[SimpleNamespace(inline_data=SimpleNamespace(data=audio_bytes))]
+                        ),
+                    )
+                ),
+            ]
+        ],
+        stop_event=handler._stop_event,
+    )
+    handler.client = _FakeLiveClient(session)
+
+    task = asyncio.create_task(handler._run_live_session())
+    await _wait_for(lambda: any("text" in item for item in session.realtime_inputs))
+
+    handler._stop_event.set()
+    await asyncio.wait_for(task, timeout=1.0)
+
+    memory_inputs = [item["text"] for item in session.realtime_inputs if "text" in item]
+    assert any("Historical related conversation snippets" in text for text in memory_inputs)
+    assert any("邮件已经发给 Alice。" in text for text in memory_inputs)
+
+    message_logs = [record.getMessage() for record in caplog.records if "LLM message_list" in record.getMessage()]
+    assert any("memory_context" in message and "邮件已经发给 Alice。" in message for message in message_logs)
+
+
+@pytest.mark.asyncio
 async def test_gemini_camera_tool_sends_snapshot_and_returns_json_result() -> None:
     """Camera tool should push the snapshot via realtime video input and return a JSON-safe tool result."""
     camera_worker = MagicMock()
@@ -269,6 +332,19 @@ def test_handler_uses_startup_voice_at_startup() -> None:
     )
 
     assert handler.get_current_voice() == "Orus"
+
+
+def test_gemini_input_transcription_omits_unsupported_language_hint(monkeypatch) -> None:
+    """Gemini Developer API rejects language_codes on Live transcription config."""
+    monkeypatch.setattr(gemini_mod, "get_session_instructions", lambda: "test")
+    monkeypatch.setattr(gemini_mod, "get_session_voice", lambda: "Kore")
+    monkeypatch.setattr(gemini_mod, "get_active_tool_specs", lambda _: [])
+
+    handler = GeminiLiveHandler(ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock()))
+
+    live_config = handler._build_live_config()
+
+    assert live_config.input_audio_transcription.language_codes is None
 
 
 def test_copy_preserves_current_voice_override() -> None:

@@ -57,6 +57,7 @@ class ToolDependencies:
     camera_worker: Any | None = None  # CameraWorker for frame buffering
     vision_processor: Any | None = None
     head_wobbler: Any | None = None  # HeadWobbler for audio-reactive motion
+    memory_store: Any | None = None
     motion_duration_s: float = 1.0
 
 

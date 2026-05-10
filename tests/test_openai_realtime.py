@@ -14,6 +14,7 @@ import reachy_mini_conversation_app.openai_realtime as rt_mod
 import reachy_mini_conversation_app.tools.core_tools as ct_mod
 import reachy_mini_conversation_app.tools.background_tool_manager as btm_mod
 from reachy_mini_conversation_app.config import OPENAI_BACKEND, config, get_default_voice_for_backend
+from reachy_mini_conversation_app.storage.memory import MemoryStore
 from reachy_mini_conversation_app.openai_realtime import OpenaiRealtimeHandler
 from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.tools.background_tool_manager import ToolCallRoutine
@@ -33,6 +34,7 @@ async def _run_openai_handler_with_events(
     events: list[Any],
     *,
     movement_manager: MagicMock | None = None,
+    memory_store: Any | None = None,
 ) -> OpenaiRealtimeHandler:
     """Run an OpenAI realtime handler against a fixed event sequence."""
     monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "test")
@@ -96,7 +98,11 @@ async def _run_openai_handler_with_events(
         def __init__(self) -> None:
             self.realtime = FakeRealtime()
 
-    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=movement_manager or MagicMock())
+    deps = ToolDependencies(
+        reachy_mini=MagicMock(),
+        movement_manager=movement_manager or MagicMock(),
+        memory_store=memory_store,
+    )
     handler = OpenaiRealtimeHandler(deps)
     handler.client = FakeClient()
 
@@ -424,6 +430,55 @@ async def test_empty_user_transcript_exits_listening_without_chat_message(monkey
     assert [call.args[0] for call in movement_manager.set_listening.call_args_list] == [True, False]
     assert handler.output_queue.empty()
     assert handler._turn_user_done_at is None
+
+
+@pytest.mark.asyncio
+async def test_final_transcripts_are_persisted_to_memory_store(monkeypatch: Any, tmp_path: Any) -> None:
+    """Only finalized user and assistant transcripts should be persisted."""
+    memory_store = MemoryStore(tmp_path)
+
+    await _run_openai_handler_with_events(
+        monkeypatch,
+        [
+            SimpleNamespace(
+                type="conversation.item.input_audio_transcription.delta",
+                item_id="item_1",
+                delta="partial-only-token",
+            ),
+            SimpleNamespace(type="conversation.item.input_audio_transcription.completed", transcript="hello there"),
+            SimpleNamespace(type="response.output_audio_transcript.done", transcript="hi back"),
+        ],
+        memory_store=memory_store,
+    )
+
+    assert [item["content"] for item in memory_store.search_messages("hello")] == ["hello there"]
+    assert [item["content"] for item in memory_store.search_messages("back")] == ["hi back"]
+    assert memory_store.search_messages("partial-only-token") == []
+
+
+@pytest.mark.asyncio
+async def test_memory_context_refresh_clears_stale_openai_context(monkeypatch: Any, tmp_path: Any) -> None:
+    """OpenAI session instructions should be refreshed when relevant history disappears."""
+    monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "base instructions")
+    monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=OPENAI_DEFAULT_VOICE: "alloy")
+    monkeypatch.setattr(rt_mod, "get_active_tool_specs", lambda _: [])
+
+    memory_store = MemoryStore(tmp_path)
+    current_session_id = memory_store.create_session(backend="openai", profile="default")
+    deps = ToolDependencies(reachy_mini=MagicMock(), movement_manager=MagicMock(), memory_store=memory_store)
+    handler = OpenaiRealtimeHandler(deps)
+    fake_session = SimpleNamespace(update=AsyncMock())
+    handler.connection = SimpleNamespace(session=fake_session)
+    handler._memory_session_id = current_session_id
+    handler._latest_memory_context = "Historical related conversation snippets:\n- stale history"
+
+    await handler._refresh_memory_context_for_user_transcript("no matching history")
+
+    fake_session.update.assert_awaited_once()
+    session_arg = fake_session.update.await_args.kwargs["session"]
+    assert "base instructions" in session_arg["instructions"]
+    assert "stale history" not in session_arg["instructions"]
+    assert handler._latest_memory_context == ""
 
 
 @pytest.mark.asyncio
