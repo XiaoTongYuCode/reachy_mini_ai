@@ -145,6 +145,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         self.partial_transcript_task: asyncio.Task[None] | None = None
         self.partial_debounce_delay = 0.5  # seconds
         self.input_transcript_chunks_by_item = InputTranscriptChunksByItem()
+        self._completed_input_transcription_item_ids: set[str] = set()
 
         # Internal lifecycle flags
         self._connected_event: asyncio.Event = asyncio.Event()
@@ -468,6 +469,16 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
             input_transcript.deltas = [delta]
         else:
             input_transcript.deltas.append(delta)
+
+    def _should_ignore_completed_input_transcript(self, item_id: str | None, transcript: str) -> bool:
+        """Return whether a completed input transcript has already been handled."""
+        if not item_id:
+            return False
+        if item_id in self._completed_input_transcription_item_ids:
+            logger.debug("Ignoring duplicate completed input transcript for item_id=%s: %s", item_id, transcript)
+            return True
+        self._completed_input_transcription_item_ids.add(item_id)
+        return False
 
     def _compute_response_cost(self, usage: Any) -> float:
         """Compute response cost using this backend's pricing."""
@@ -811,6 +822,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
             # Reset the partial-transcript accumulator for each new session
             self.input_transcript_chunks_by_item = InputTranscriptChunksByItem()
+            self._completed_input_transcription_item_ids.clear()
 
             # Manage events received from the realtime server.
             self.connection = conn
@@ -921,6 +933,10 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
                         if not transcript:
                             logger.debug("Ignoring empty user transcript")
+                            continue
+
+                        item_id = getattr(event, "item_id", None)
+                        if self._should_ignore_completed_input_transcript(item_id, transcript):
                             continue
 
                         self._turn_user_done_at = time.perf_counter()

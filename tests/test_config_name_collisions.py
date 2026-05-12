@@ -92,16 +92,22 @@ def test_refresh_runtime_config_reloads_hf_runtime_fields(monkeypatch: pytest.Mo
     monkeypatch.setenv("HF_TOKEN", "hf-runtime-token")
     monkeypatch.setenv("HF_HOME", "/tmp/reachy-hf-cache")
     monkeypatch.setenv("LOCAL_VISION_MODEL", "test/local-vision-model")
+    monkeypatch.setenv("HF_REALTIME_AUTO_START", "true")
+    monkeypatch.setenv("HF_REALTIME_LANGUAGE", "auto")
 
     monkeypatch.setattr(config_mod.config, "HF_TOKEN", None)
     monkeypatch.setattr(config_mod.config, "HF_HOME", "./old-cache")
     monkeypatch.setattr(config_mod.config, "LOCAL_VISION_MODEL", "old/model")
+    monkeypatch.setattr(config_mod.config, "HF_REALTIME_AUTO_START", False)
+    monkeypatch.setattr(config_mod.config, "HF_REALTIME_LANGUAGE", "zh")
 
     config_mod.refresh_runtime_config_from_env()
 
     assert config_mod.config.HF_TOKEN == "hf-runtime-token"
     assert config_mod.config.HF_HOME == "/tmp/reachy-hf-cache"
     assert config_mod.config.LOCAL_VISION_MODEL == "test/local-vision-model"
+    assert config_mod.config.HF_REALTIME_AUTO_START is True
+    assert config_mod.config.HF_REALTIME_LANGUAGE == "auto"
 
 
 @pytest.mark.parametrize(

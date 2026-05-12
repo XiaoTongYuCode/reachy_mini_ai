@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reachy-mini-hf-realtime-gateway"
+version = "0.1.0"
+description = "Local Hugging Face speech-to-speech realtime gateway for Reachy Mini"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "python-dotenv>=1.0",
+  "speech-to-speech[faster-whisper,websocket,whisper-mlx]",
+  "websockets>=15.0",
+]
+
+[project.scripts]
+reachy-mini-hf-realtime-gateway = "reachy_mini_hf_realtime_gateway.launcher:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 119

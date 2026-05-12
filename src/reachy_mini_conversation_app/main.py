@@ -98,8 +98,8 @@ def run(
             config.MODEL_NAME,
         )
 
-    from reachy_mini_conversation_app.storage.memory import MemoryStore
     from reachy_mini_conversation_app.console import LocalStream
+    from reachy_mini_conversation_app.storage.memory import MemoryStore
     from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
     from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
 
@@ -294,6 +294,10 @@ def run(
         threading.Thread(target=poll_stop_event, daemon=True).start()
 
     try:
+        prepare_auto_start_gateway = getattr(handler, "prepare_auto_start_gateway", None)
+        if args.gradio and callable(prepare_auto_start_gateway):
+            asyncio.run(prepare_auto_start_gateway())
+
         stream_manager.launch()
     except KeyboardInterrupt:
         logger.info("Keyboard interruption in main thread... closing server.")
@@ -302,6 +306,11 @@ def run(
         head_wobbler.stop()
         if camera_worker:
             camera_worker.stop()
+
+        try:
+            asyncio.run(handler.shutdown())
+        except Exception as e:
+            logger.debug(f"Error shutting down handler during app shutdown: {e}")
 
         # Ensure media is explicitly closed before disconnecting
         try:

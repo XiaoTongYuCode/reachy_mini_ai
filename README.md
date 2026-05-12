@@ -132,7 +132,10 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, or `gemini`. |
 | `MODEL_NAME` | Optional model override for OpenAI Realtime or Gemini Live. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini. Hugging Face uses the server's model selection. |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face connection selector: `deployed` uses the built-in Hugging Face server; `local` uses `HF_REALTIME_WS_URL`. Defaults to `deployed`. |
+| `HF_REALTIME_LANGUAGE` | Speech recognition language hint for Hugging Face Realtime. Defaults to `zh` for Chinese; set to `auto` to let the backend detect the language. The built-in deployed server may ignore this if its server-side STT is not configured for the requested language; for reliable Chinese recognition, use the local gateway with `GATEWAY_STT=faster-whisper` and `GATEWAY_LANGUAGE=zh`. |
 | `HF_REALTIME_WS_URL` | Direct websocket endpoint for your own Hugging Face backend. Accepts either a base URL like `ws://127.0.0.1:8765/v1` or the full websocket URL `ws://127.0.0.1:8765/v1/realtime`. Used when `HF_REALTIME_CONNECTION_MODE=local`. |
+| `HF_REALTIME_AUTO_START` | Optional. When `true` with `HF_REALTIME_CONNECTION_MODE=local`, the app starts `reachy-mini-hf-realtime-gateway` before connecting to `HF_REALTIME_WS_URL`. The app uses `services/hf_realtime_gateway/.venv/bin/reachy-mini-hf-realtime-gateway` when present, otherwise the command must be available on `PATH`. Defaults to `false`. |
+| `HF_REALTIME_AUTO_START_TIMEOUT_SECONDS` | Optional readiness timeout for `HF_REALTIME_AUTO_START`, in seconds. First local model download/warmup can take several minutes. Defaults to `600`. |
 | `HF_HOME` | Cache directory for local Hugging Face downloads (only used with `--local-vision` flag, defaults to `./cache`). |
 | `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
@@ -147,7 +150,10 @@ Use the built-in Hugging Face server through the app-managed Space proxy. This i
 ```env
 BACKEND_PROVIDER=huggingface
 HF_REALTIME_CONNECTION_MODE=deployed
+HF_REALTIME_LANGUAGE=zh
 ```
+
+The deployed server chooses its own STT backend. If Chinese speech is recognized as English, switch to the local gateway so the STT model and language are controlled by `services/hf_realtime_gateway/.env`.
 
 Run your own realtime voice backend using [speech-to-speech](https://github.com/huggingface/speech-to-speech) on the same machine as the conversation app:
 
@@ -155,6 +161,17 @@ Run your own realtime voice backend using [speech-to-speech](https://github.com/
 BACKEND_PROVIDER=huggingface
 HF_REALTIME_CONNECTION_MODE=local
 HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+HF_REALTIME_AUTO_START=true
+```
+
+If `reachy-mini-hf-realtime-gateway` is installed in the app environment or in `services/hf_realtime_gateway/.venv`, the app can start it automatically:
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+HF_REALTIME_AUTO_START=true
+HF_REALTIME_AUTO_START_TIMEOUT_SECONDS=600
 ```
 
 Run your own Hugging Face backend on your laptop and connect to it from Reachy Mini Wireless over the same Wi-Fi network:

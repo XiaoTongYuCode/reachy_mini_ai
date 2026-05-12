@@ -49,6 +49,7 @@ tmp/
 *.log
 cache/
 src/reachy_mini_conversation_app/storage/memory.sqlite3*
+services/hf_realtime_gateway/mlx_models/
 
 # macOS
 .DS_Store

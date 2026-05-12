@@ -132,7 +132,10 @@ pip install -e .[dev]                   # 开发工具
 | `BACKEND_PROVIDER` | 要使用的实时后端：`huggingface`（默认）、`openai` 或 `gemini`。 |
 | `MODEL_NAME` | OpenAI Realtime 或 Gemini Live 的可选模型覆盖。OpenAI 默认 `gpt-realtime`，Gemini 默认 `gemini-3.1-flash-live-preview`。Hugging Face 使用服务器侧模型选择。 |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face 连接模式：`deployed` 使用内置 Hugging Face 服务器；`local` 使用 `HF_REALTIME_WS_URL`。默认 `deployed`。 |
+| `HF_REALTIME_LANGUAGE` | Hugging Face Realtime 的语音识别语言提示。默认 `zh`，适合中文；如需后端自动检测，可设为 `auto`。内置云端服务可能会忽略该值，因为实际 STT 由服务端启动参数决定；如果需要稳定中文识别，请使用本地网关，并在 `services/hf_realtime_gateway/.env` 中配置 `GATEWAY_STT=faster-whisper` 和 `GATEWAY_LANGUAGE=zh`。 |
 | `HF_REALTIME_WS_URL` | 你自己的 Hugging Face 后端的 websocket 端点。可填基础 URL（如 `ws://127.0.0.1:8765/v1`）或完整 websocket URL（`ws://127.0.0.1:8765/v1/realtime`）。在 `HF_REALTIME_CONNECTION_MODE=local` 时使用。 |
+| `HF_REALTIME_AUTO_START` | 可选。与 `HF_REALTIME_CONNECTION_MODE=local` 一起设为 `true` 时，应用会在连接 `HF_REALTIME_WS_URL` 前启动 `reachy-mini-hf-realtime-gateway`。若存在 `services/hf_realtime_gateway/.venv/bin/reachy-mini-hf-realtime-gateway` 会优先使用，否则该命令必须已安装并在 `PATH` 中。默认 `false`。 |
+| `HF_REALTIME_AUTO_START_TIMEOUT_SECONDS` | 可选。`HF_REALTIME_AUTO_START` 的就绪等待超时时间，单位秒。首次本地模型下载/预热可能需要几分钟。默认 `600`。 |
 | `HF_HOME` | 本地 Hugging Face 下载缓存目录（仅 `--local-vision` 使用，默认 `./cache`）。 |
 | `HF_TOKEN` | 可选的 Hugging Face 访问令牌（用于受限/私有资产）。 |
 | `LOCAL_VISION_MODEL` | 本地视觉处理的 Hugging Face 模型路径（仅 `--local-vision` 使用，默认 `HuggingFaceTB/SmolVLM2-2.2B-Instruct`）。 |
@@ -147,7 +150,10 @@ pip install -e .[dev]                   # 开发工具
 ```env
 BACKEND_PROVIDER=huggingface
 HF_REALTIME_CONNECTION_MODE=deployed
+HF_REALTIME_LANGUAGE=zh
 ```
+
+内置云端服务会自行选择 STT 后端。如果中文语音仍被识别成英文，请切换到本地网关，让 `services/hf_realtime_gateway/.env` 控制 STT 模型和语言。
 
 在与你的对话应用同一台机器上，运行 [speech-to-speech](https://github.com/huggingface/speech-to-speech) 作为自建实时语音后端：
 
@@ -155,6 +161,17 @@ HF_REALTIME_CONNECTION_MODE=deployed
 BACKEND_PROVIDER=huggingface
 HF_REALTIME_CONNECTION_MODE=local
 HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+HF_REALTIME_AUTO_START=true
+```
+
+如果 `reachy-mini-hf-realtime-gateway` 已安装在应用运行环境中，或已存在于 `services/hf_realtime_gateway/.venv`，也可以让应用自动启动它：
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+HF_REALTIME_AUTO_START=true
+HF_REALTIME_AUTO_START_TIMEOUT_SECONDS=600
 ```
 
 在你的笔记本上运行 Hugging Face 后端，并让 Reachy Mini Wireless 通过同一 Wi-Fi 网络连接：

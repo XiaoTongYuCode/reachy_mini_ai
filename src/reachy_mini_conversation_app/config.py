@@ -91,6 +91,9 @@ HF_BACKEND = "huggingface"
 DEFAULT_BACKEND_PROVIDER = HF_BACKEND
 HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
 HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
+HF_REALTIME_AUTO_START_ENV = "HF_REALTIME_AUTO_START"
+HF_REALTIME_AUTO_START_TIMEOUT_SECONDS_ENV = "HF_REALTIME_AUTO_START_TIMEOUT_SECONDS"
+HF_REALTIME_LANGUAGE_ENV = "HF_REALTIME_LANGUAGE"
 HF_LOCAL_CONNECTION_MODE = "local"
 HF_DEPLOYED_CONNECTION_MODE = "deployed"
 HF_REALTIME_SESSION_PROXY_URL = "https://pollen-robotics-reachy-mini-realtime-url.hf.space/session"
@@ -106,6 +109,7 @@ class HFBackendDefaults:
     # Users who need a custom target should use HF_REALTIME_CONNECTION_MODE=local
     # with HF_REALTIME_WS_URL.
     session_url: str = HF_REALTIME_SESSION_PROXY_URL
+    language: str = "zh"
     voice: str = "Aiden"
     model_name: str = ""
     direct_port: int = 8765
@@ -363,17 +367,21 @@ class Config:
     # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed proxy is HF_DEFAULTS.session_url.
     HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
     HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
+    HF_REALTIME_AUTO_START = _env_flag(HF_REALTIME_AUTO_START_ENV, default=False)
+    HF_REALTIME_LANGUAGE = (os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language).strip() or HF_DEFAULTS.language
     HF_HOME = os.getenv("HF_HOME", "./cache")
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
 
     logger.debug(
-        "Backend provider: %s, Model: %s, HF mode: %s, HF session URL set: %s, HF direct URL set: %s, HF_HOME: %s, Vision Model: %s",
+        "Backend provider: %s, Model: %s, HF mode: %s, HF session URL set: %s, HF direct URL set: %s, HF auto start: %s, HF language: %s, HF_HOME: %s, Vision Model: %s",
         BACKEND_PROVIDER,
         MODEL_NAME,
         HF_REALTIME_CONNECTION_MODE,
         bool(HF_REALTIME_SESSION_URL and HF_REALTIME_SESSION_URL.strip()),
         bool(HF_REALTIME_WS_URL and HF_REALTIME_WS_URL.strip()),
+        HF_REALTIME_AUTO_START,
+        HF_REALTIME_LANGUAGE,
         HF_HOME,
         LOCAL_VISION_MODEL,
     )
@@ -467,6 +475,10 @@ def refresh_runtime_config_from_env() -> None:
     # Deliberately ignore HF_REALTIME_SESSION_URL from the environment; the app-managed proxy is HF_DEFAULTS.session_url.
     config.HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
     config.HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
+    config.HF_REALTIME_AUTO_START = _env_flag(HF_REALTIME_AUTO_START_ENV, default=False)
+    config.HF_REALTIME_LANGUAGE = (
+        os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language
+    ).strip() or HF_DEFAULTS.language
     config.HF_HOME = os.getenv("HF_HOME", "./cache")
     config.LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     config.HF_TOKEN = os.getenv("HF_TOKEN")
@@ -512,6 +524,12 @@ def get_hf_session_url() -> str | None:
     """Return the built-in Hugging Face session proxy URL, if any."""
     value = (getattr(config, "HF_REALTIME_SESSION_URL", None) or "").strip()
     return value or None
+
+
+def get_hf_realtime_language() -> str:
+    """Return the configured Hugging Face speech recognition language."""
+    value = (getattr(config, "HF_REALTIME_LANGUAGE", None) or "").strip()
+    return value or HF_DEFAULTS.language
 
 
 def get_hf_direct_ws_url() -> str | None:
