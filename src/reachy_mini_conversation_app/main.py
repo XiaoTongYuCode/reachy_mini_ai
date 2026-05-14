@@ -50,6 +50,7 @@ def run(
         HF_BACKEND,
         GEMINI_BACKEND,
         OPENAI_BACKEND,
+        PIPELINE_BACKEND,
         HF_LOCAL_CONNECTION_MODE,
         config,
         is_gemini_model,
@@ -207,6 +208,19 @@ def run(
             transport_label,
         )
         handler = HuggingFaceRealtimeHandler(
+            deps,
+            gradio_mode=args.gradio,
+            instance_path=instance_path,
+            startup_voice=startup_settings.voice,
+        )  # type: ignore[assignment]
+    elif config.BACKEND_PROVIDER == PIPELINE_BACKEND:
+        from reachy_mini_conversation_app.pipeline_realtime import PipelineRealtimeHandler
+
+        logger.info(
+            "Using %s via local STT/LLM/TTS pipeline handler",
+            get_backend_label(config.BACKEND_PROVIDER),
+        )
+        handler = PipelineRealtimeHandler(
             deps,
             gradio_mode=args.gradio,
             instance_path=instance_path,

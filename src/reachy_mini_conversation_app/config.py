@@ -88,6 +88,7 @@ GEMINI_AVAILABLE_VOICES: list[str] = [
 OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
 HF_BACKEND = "huggingface"
+PIPELINE_BACKEND = "pipeline"
 DEFAULT_BACKEND_PROVIDER = HF_BACKEND
 HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
 HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
@@ -120,16 +121,19 @@ DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
     HF_BACKEND: HF_DEFAULTS.model_name,
+    PIPELINE_BACKEND: "gpt-4o-mini",
 }
 BACKEND_LABEL_BY_PROVIDER = {
     OPENAI_BACKEND: "OpenAI Realtime",
     GEMINI_BACKEND: "Gemini Live",
     HF_BACKEND: "Hugging Face",
+    PIPELINE_BACKEND: "Local Pipeline",
 }
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
     GEMINI_BACKEND: "Kore",
     HF_BACKEND: HF_DEFAULTS.voice,
+    PIPELINE_BACKEND: HF_DEFAULTS.voice,
 }
 
 logger = logging.getLogger(__name__)
@@ -370,6 +374,10 @@ class Config:
     HF_REALTIME_AUTO_START = _env_flag(HF_REALTIME_AUTO_START_ENV, default=False)
     HF_REALTIME_LANGUAGE = (os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language).strip() or HF_DEFAULTS.language
     HF_HOME = os.getenv("HF_HOME", "./cache")
+    PIPELINE_LLM_PROVIDER = (os.getenv("PIPELINE_LLM_PROVIDER") or "openai").strip().lower()
+    PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL") or MODEL_NAME
+    PIPELINE_LLM_API_KEY = os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY") or OPENAI_API_KEY
+    PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
 
@@ -480,6 +488,12 @@ def refresh_runtime_config_from_env() -> None:
         os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language
     ).strip() or HF_DEFAULTS.language
     config.HF_HOME = os.getenv("HF_HOME", "./cache")
+    config.PIPELINE_LLM_PROVIDER = (os.getenv("PIPELINE_LLM_PROVIDER") or "openai").strip().lower()
+    config.PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL") or config.MODEL_NAME
+    config.PIPELINE_LLM_API_KEY = (
+        os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY") or config.OPENAI_API_KEY
+    )
+    config.PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
     config.LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     config.HF_TOKEN = os.getenv("HF_TOKEN")
     config.MEMORY_AUTO_EXTRACT = _env_flag("REACHY_MINI_MEMORY_AUTO_EXTRACT", default=False)
@@ -509,7 +523,7 @@ def get_available_voices_for_backend(backend: str | None = None) -> list[str]:
     normalized_backend = get_backend_choice() if backend is None else _normalize_backend_provider(backend)
     if normalized_backend == GEMINI_BACKEND:
         return list(GEMINI_AVAILABLE_VOICES)
-    if normalized_backend == HF_BACKEND:
+    if normalized_backend in {HF_BACKEND, PIPELINE_BACKEND}:
         return list(HF_AVAILABLE_VOICES)
     return list(AVAILABLE_VOICES)
 
@@ -559,6 +573,21 @@ def get_hf_connection_selection() -> HFConnectionSelection:
 def has_hf_realtime_target() -> bool:
     """Return whether Hugging Face has a target for the selected mode."""
     return get_hf_connection_selection().has_target
+
+
+def has_pipeline_runtime_target() -> bool:
+    """Return whether the experimental pipeline backend has enough runtime configuration to start."""
+    llm_provider = (getattr(config, "PIPELINE_LLM_PROVIDER", "") or "").strip().lower()
+    llm_base_url = (getattr(config, "PIPELINE_LLM_BASE_URL", None) or os.getenv("GATEWAY_LLM_BASE_URL") or "").strip()
+    llm_model = (getattr(config, "PIPELINE_LLM_MODEL", None) or os.getenv("GATEWAY_LLM_MODEL") or "").strip()
+
+    if not llm_base_url or not llm_model:
+        return False
+    if llm_provider == "openai":
+        # Local OpenAI-compatible servers may not require a key. Hosted providers
+        # such as OpenRouter can set GATEWAY_LLM_API_KEY or PIPELINE_LLM_API_KEY.
+        return True
+    return True
 
 
 def is_gemini_model() -> bool:

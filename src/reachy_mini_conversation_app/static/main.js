@@ -1,6 +1,7 @@
 const OPENAI_BACKEND = "openai";
 const GEMINI_BACKEND = "gemini";
 const HF_BACKEND = "huggingface";
+const PIPELINE_BACKEND = "pipeline";
 const DEFAULT_BACKEND = HF_BACKEND;
 const HF_DEFAULT_HOST = "localhost";
 const HF_DEFAULT_PORT = 8765;
@@ -44,11 +45,25 @@ const BACKEND_META = {
     requiredCredentialsCopy: "Set up the Hugging Face connection details before switching.",
     note: "Hugging Face can use the built-in server or your own local realtime websocket.",
   },
+  [PIPELINE_BACKEND]: {
+    label: "Local Pipeline",
+    formTitle: "Configure Local Pipeline",
+    inputLabel: "",
+    placeholder: "",
+    saveButton: "Save pipeline",
+    changeButton: "Edit pipeline",
+    readyTitle: "Local Pipeline ready",
+    readyCopy: "Local Pipeline is configured for the local speech-to-speech gateway.",
+    formCopy: "Set GATEWAY_LLM_* environment variables in the gateway .env, then restart.",
+    requiredCredentialsCopy: "Local Pipeline needs GATEWAY_LLM_BASE_URL and GATEWAY_LLM_MODEL for the local gateway.",
+    note: "Local Pipeline runs STT/TTS locally through the speech-to-speech gateway and sends only LLM requests to the configured endpoint.",
+  },
 };
 
 function backendHasCredentials(status, backend) {
   if (backend === GEMINI_BACKEND) return !!status.has_gemini_key;
   if (backend === HF_BACKEND) return !!(status.has_hf_connection ?? (status.has_hf_session_url || status.has_hf_ws_url));
+  if (backend === PIPELINE_BACKEND) return !!status.can_proceed_with_pipeline;
   return !!status.has_openai_key;
 }
 
@@ -61,6 +76,11 @@ function backendCanProceed(status, backend) {
   if (backend === HF_BACKEND) {
     return status.can_proceed_with_hf !== undefined
       ? !!status.can_proceed_with_hf
+      : backendHasCredentials(status, backend);
+  }
+  if (backend === PIPELINE_BACKEND) {
+    return status.can_proceed_with_pipeline !== undefined
+      ? !!status.can_proceed_with_pipeline
       : backendHasCredentials(status, backend);
   }
   return status.can_proceed_with_openai !== undefined
@@ -385,7 +405,7 @@ async function init() {
   }
 
   function setSelectedBackend(backend) {
-    selectedBackend = [OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND].includes(backend)
+    selectedBackend = [OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND, PIPELINE_BACKEND].includes(backend)
       ? backend
       : DEFAULT_BACKEND;
     backendInputs.forEach((radio) => {
@@ -478,6 +498,7 @@ async function init() {
     can_proceed_with_openai: false,
     can_proceed_with_gemini: false,
     can_proceed_with_hf: true,
+    can_proceed_with_pipeline: false,
     requires_restart: false,
   };
   populateHFFields(st);

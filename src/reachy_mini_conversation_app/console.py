@@ -28,6 +28,7 @@ from reachy_mini_conversation_app.config import (
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     OPENAI_BACKEND,
+    PIPELINE_BACKEND,
     HF_REALTIME_WS_URL_ENV,
     HF_LOCAL_CONNECTION_MODE,
     HF_DEPLOYED_CONNECTION_MODE,
@@ -41,6 +42,7 @@ from reachy_mini_conversation_app.config import (
     parse_hf_direct_target,
     get_model_name_for_backend,
     get_hf_connection_selection,
+    has_pipeline_runtime_target,
     refresh_runtime_config_from_env,
 )
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
@@ -175,6 +177,8 @@ class LocalStream:
             return self._has_key(config.GEMINI_API_KEY)
         if backend == HF_BACKEND:
             return has_hf_realtime_target()
+        if backend == PIPELINE_BACKEND:
+            return has_pipeline_runtime_target()
         return self._has_key(config.OPENAI_API_KEY)
 
     @staticmethod
@@ -184,6 +188,8 @@ class LocalStream:
             return "GEMINI_API_KEY"
         if backend == HF_BACKEND:
             return HF_REALTIME_WS_URL_ENV
+        if backend == PIPELINE_BACKEND:
+            return "OPENAI_API_KEY or PIPELINE_LLM_API_KEY"
         return "OPENAI_API_KEY"
 
     def _persist_env_value(self, env_name: str, value: str) -> None:
@@ -381,6 +387,7 @@ class LocalStream:
             can_proceed_with_openai = has_openai_key
             can_proceed_with_gemini = has_gemini_key
             can_proceed_with_hf = has_hf_connection
+            can_proceed_with_pipeline = has_pipeline_runtime_target()
             can_proceed = self._has_required_key(active_backend)
             requires_restart = backend_provider != active_backend
             return {
@@ -399,6 +406,7 @@ class LocalStream:
                 "can_proceed_with_openai": can_proceed_with_openai,
                 "can_proceed_with_gemini": can_proceed_with_gemini,
                 "can_proceed_with_hf": can_proceed_with_hf,
+                "can_proceed_with_pipeline": can_proceed_with_pipeline,
                 "requires_restart": requires_restart,
             }
 
@@ -439,7 +447,7 @@ class LocalStream:
         @self._settings_app.post("/backend_config")
         def _set_backend(payload: BackendPayload) -> JSONResponse:
             backend = payload.backend.strip().lower()
-            if backend not in {OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND}:
+            if backend not in {OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND, PIPELINE_BACKEND}:
                 return JSONResponse({"ok": False, "error": "invalid_backend"}, status_code=400)
 
             api_key = (payload.api_key or "").strip()
