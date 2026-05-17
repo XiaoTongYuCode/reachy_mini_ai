@@ -23,7 +23,8 @@ from reachy_mini_conversation_app.vision.head_tracking import HeadTracker, HeadT
 
 logger = logging.getLogger(__name__)
 
-_PROCESS_START_TIMEOUT = 20.0
+_PROCESS_START_TIMEOUT = 90.0
+_PROCESS_START_TIMEOUT_ENV = "REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS"
 _REQUEST_TIMEOUT = 0.5
 _SHUTDOWN_TIMEOUT = 2.0
 _HEADER_STRUCT = struct.Struct("!I")
@@ -34,6 +35,25 @@ def _build_tracker_backend() -> HeadTracker:
     from reachy_mini_conversation_app.vision.head_tracking.yolo import YoloHeadTracker
 
     return YoloHeadTracker()
+
+
+def _resolve_start_timeout(start_timeout: float | None) -> float:
+    """Resolve the child process startup timeout."""
+    if start_timeout is not None:
+        return start_timeout
+
+    raw_value = os.environ.get(_PROCESS_START_TIMEOUT_ENV)
+    if raw_value is None:
+        return _PROCESS_START_TIMEOUT
+
+    try:
+        timeout = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{_PROCESS_START_TIMEOUT_ENV} must be a number of seconds") from exc
+
+    if timeout <= 0:
+        raise RuntimeError(f"{_PROCESS_START_TIMEOUT_ENV} must be greater than 0")
+    return timeout
 
 
 def _read_exact(stream: IO[bytes], size: int) -> bytes:
@@ -129,9 +149,10 @@ def _is_tracker_result(payload: object) -> TypeGuard[HeadTrackerResult]:
 class YoloHeadTrackerProcess:
     """Proxy that runs the optional YOLO head tracker out of process."""
 
-    def __init__(self, *, request_timeout: float = _REQUEST_TIMEOUT) -> None:
+    def __init__(self, *, request_timeout: float = _REQUEST_TIMEOUT, start_timeout: float | None = None) -> None:
         """Start the child process and wait until the tracker is ready."""
         self.request_timeout = request_timeout
+        self.start_timeout = _resolve_start_timeout(start_timeout)
         self._closed = False
         self._send_lock = threading.Lock()
         self._messages: queue.Queue[tuple[str, object | None]] = queue.Queue()
@@ -178,7 +199,7 @@ class YoloHeadTrackerProcess:
         self._reader.start()
         atexit.register(self.close)
 
-        message = self._wait_for_message(_PROCESS_START_TIMEOUT)
+        message = self._wait_for_message(self.start_timeout)
         if not (isinstance(message, tuple) and len(message) == 2 and isinstance(message[0], str)):
             self.close()
             raise RuntimeError(f"yolo head tracker returned an invalid startup message: {message!r}")

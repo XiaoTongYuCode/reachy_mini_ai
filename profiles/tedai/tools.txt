@@ -7,3 +7,4 @@ idle_do_nothing
 move_head
 send_email
 web_search
+current_location_weather

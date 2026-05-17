@@ -668,13 +668,13 @@ async def test_shutdown_stops_managed_hf_gateway(monkeypatch: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_managed_gateway_uses_service_env_file_when_available(monkeypatch: Any, tmp_path: Any) -> None:
-    """The default managed gateway should load the service-local .env instead of the app root .env."""
+async def test_managed_gateway_uses_root_env_file_when_available(monkeypatch: Any, tmp_path: Any) -> None:
+    """The default managed gateway should load the root .env for app and gateway settings."""
     service_root = tmp_path / "services" / "hf_realtime_gateway"
     command_path = service_root / ".venv" / "bin" / "reachy-mini-hf-realtime-gateway"
     command_path.parent.mkdir(parents=True)
     command_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    env_path = service_root / ".env"
+    env_path = tmp_path / ".env"
     env_path.write_text("GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1\n", encoding="utf-8")
     monkeypatch.setattr(gateway_process_mod, "PROJECT_ROOT", tmp_path)
     monkeypatch.setenv("HF_HOME", "./cache")
@@ -708,13 +708,13 @@ async def test_managed_gateway_uses_service_env_file_when_available(monkeypatch:
 
 
 @pytest.mark.asyncio
-async def test_managed_gateway_preserves_service_env_hf_home(monkeypatch: Any, tmp_path: Any) -> None:
-    """A service-local HF_HOME should win over the app's local-vision HF_HOME."""
+async def test_managed_gateway_preserves_root_env_hf_home(monkeypatch: Any, tmp_path: Any) -> None:
+    """A root .env HF_HOME should win over the current process HF_HOME."""
     service_root = tmp_path / "services" / "hf_realtime_gateway"
     command_path = service_root / ".venv" / "bin" / "reachy-mini-hf-realtime-gateway"
     command_path.parent.mkdir(parents=True)
     command_path.write_text("#!/bin/sh\n", encoding="utf-8")
-    env_path = service_root / ".env"
+    env_path = tmp_path / ".env"
     env_path.write_text("HF_HOME=./cache\n", encoding="utf-8")
     monkeypatch.setattr(gateway_process_mod, "PROJECT_ROOT", tmp_path)
     monkeypatch.setenv("HF_HOME", "/app-local-vision-cache")

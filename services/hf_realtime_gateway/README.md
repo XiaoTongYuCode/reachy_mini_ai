@@ -18,9 +18,10 @@ cd services/hf_realtime_gateway
 uv sync
 ```
 
-复制示例配置并设置 LLM 字段：
+从仓库根目录复制示例配置，并在根目录 `.env` 中设置 LLM 字段：
 
 ```bash
+cd ../..
 cp .env.example .env
 ```
 
@@ -34,6 +35,13 @@ GATEWAY_LLM_API_KEY=
 
 如果使用 API 提供商，请设置 `GATEWAY_LLM_API_KEY`。如果使用本地 `vLLM`
 或 `llama.cpp`，且服务端不要求鉴权，可留空。
+
+如果兼容 Responses API 的服务端不支持 `chat_template_kwargs`，请关闭
+speech-to-speech 的 provider-side thinking 参数：
+
+```env
+GATEWAY_RESPONSES_API_DISABLE_THINKING=false
+```
 
 默认 STT 使用 `faster-whisper`，避免 STT 和 Qwen3 TTS 在 Apple Silicon 上同时
 占用 MLX/Metal 导致本地进程崩溃。若确认本机 `whisper-mlx` 稳定，也可以显式设置：

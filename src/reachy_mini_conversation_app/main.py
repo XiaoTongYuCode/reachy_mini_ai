@@ -48,9 +48,9 @@ def run(
     from reachy_mini_conversation_app.moves import MovementManager
     from reachy_mini_conversation_app.config import (
         HF_BACKEND,
+        ARK_BACKEND,
         GEMINI_BACKEND,
         OPENAI_BACKEND,
-        PIPELINE_BACKEND,
         HF_LOCAL_CONNECTION_MODE,
         config,
         is_gemini_model,
@@ -104,7 +104,7 @@ def run(
     from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
     from reachy_mini_conversation_app.audio.head_wobbler import HeadWobbler
 
-    if args.no_camera and args.head_tracker is not None:
+    if args.no_camera and args.head_tracker not in (None, "none"):
         logger.warning("Head tracking disabled: --no-camera flag is set. Remove --no-camera to enable head tracking.")
 
     if robot is None:
@@ -213,14 +213,14 @@ def run(
             instance_path=instance_path,
             startup_voice=startup_settings.voice,
         )  # type: ignore[assignment]
-    elif config.BACKEND_PROVIDER == PIPELINE_BACKEND:
-        from reachy_mini_conversation_app.pipeline_realtime import PipelineRealtimeHandler
+    elif config.BACKEND_PROVIDER == ARK_BACKEND:
+        from reachy_mini_conversation_app.ark_live import ArkLiveHandler
 
         logger.info(
-            "Using %s via local STT/LLM/TTS pipeline handler",
+            "Using %s via Volcengine Realtime Dialogue handler",
             get_backend_label(config.BACKEND_PROVIDER),
         )
-        handler = PipelineRealtimeHandler(
+        handler = ArkLiveHandler(
             deps,
             gradio_mode=args.gradio,
             instance_path=instance_path,

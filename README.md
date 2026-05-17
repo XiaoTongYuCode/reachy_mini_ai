@@ -34,6 +34,7 @@ Conversational app for the Reachy Mini robot combining realtime voice backends, 
   - **Hugging Face** - default, using the built-in Hugging Face server or your own local endpoint.
   - **OpenAI Realtime** (`gpt-realtime`) - requires `OPENAI_API_KEY`.
   - **Gemini Live** (`gemini-3.1-flash-live-preview`) - requires `GEMINI_API_KEY`.
+  - **Volcengine Realtime** - requires Volcengine Speech `X-Api-*` credentials.
 - Vision processing uses the selected realtime backend by default (when the camera tool is used), with optional on-device local vision using SmolVLM2 (CPU/GPU/MPS) via `--local-vision`.
 - Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and head-tracking.
 - Async tool dispatch integrates robot motion, camera capture, and optional head-tracking capabilities through a Gradio web UI with live transcripts.
@@ -129,7 +130,7 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 |----------|-------------|
 | `OPENAI_API_KEY` | Required for OpenAI Realtime mode. |
 | `GEMINI_API_KEY` | Required for Gemini mode. Also accepts `GOOGLE_API_KEY`. Get one at [aistudio.google.com](https://aistudio.google.com/apikey). |
-| `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, or `gemini`. |
+| `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, `gemini`, or `ark`. |
 | `MODEL_NAME` | Optional model override for OpenAI Realtime or Gemini Live. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini. Hugging Face uses the server's model selection. |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face connection selector: `deployed` uses the built-in Hugging Face server; `local` uses `HF_REALTIME_WS_URL`. Defaults to `deployed`. |
 | `HF_REALTIME_LANGUAGE` | Speech recognition language hint for Hugging Face Realtime. Defaults to `zh` for Chinese; set to `auto` to let the backend detect the language. The built-in deployed server may ignore this if its server-side STT is not configured for the requested language; for reliable Chinese recognition, use the local gateway with `GATEWAY_STT=faster-whisper` and `GATEWAY_LANGUAGE=zh`. |
@@ -139,6 +140,12 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `HF_HOME` | Cache directory for local Hugging Face downloads (only used with `--local-vision` flag, defaults to `./cache`). |
 | `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
+| `REACHY_MINI_MEMORY_CONTEXT_ENABLED` | Optional. When `true`, each user transcript can refresh model-visible long-term memory context. Defaults to `false` for the fastest realtime response path. |
+| `ARK_REALTIME_APP_ID` / `VOLCENGINE_REALTIME_APP_ID` / `VOLC_APP_ID` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-App-ID`. |
+| `ARK_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_TOKEN` / `VOLC_ACCESS_KEY` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-Access-Key`. |
+| `ARK_REALTIME_APP_KEY` / `VOLCENGINE_REALTIME_APP_KEY` / `VOLC_APP_KEY` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-App-Key`. |
+| `ARK_REALTIME_RESOURCE_ID` / `VOLCENGINE_REALTIME_RESOURCE_ID` / `VOLC_RESOURCE_ID` | Optional for `BACKEND_PROVIDER=ark`; defaults to `volc.speech.dialog`. |
+| `ARK_REALTIME_WS_URL` | Optional Volcengine Realtime websocket URL; defaults to `wss://openspeech.bytedance.com/api/v3/realtime/dialogue`. |
 | `VOLCENGINE_WEB_SEARCH_API_KEY` | Required only for the `web_search` tool. Uses the Volcengine Web Search product APIKey endpoint, not the Ark Responses plugin. |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | Optional Web Search API URL; defaults to `https://open.feedcoopapi.com/search_api/web_search`. |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | Optional timeout for each `web_search` call; defaults to `30`. |
@@ -153,7 +160,7 @@ HF_REALTIME_CONNECTION_MODE=deployed
 HF_REALTIME_LANGUAGE=zh
 ```
 
-The deployed server chooses its own STT backend. If Chinese speech is recognized as English, switch to the local gateway so the STT model and language are controlled by `services/hf_realtime_gateway/.env`.
+The deployed server chooses its own STT backend. If Chinese speech is recognized as English, switch to the local gateway so the STT model and language are controlled by the repository root `.env`.
 
 Run your own realtime voice backend using [speech-to-speech](https://github.com/huggingface/speech-to-speech) on the same machine as the conversation app:
 
@@ -247,7 +254,7 @@ When the app connects to an official simulated daemon, it detects `simulation_en
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--head-tracker {yolo,mediapipe}` | `None` | Select a head-tracking backend when a camera is available. `yolo` uses a local YOLO face detector, `mediapipe` comes from the `reachy_mini_toolbox` package. Requires the matching optional extra. |
+| `--head-tracker {none,yolo,mediapipe}` | `yolo` | Select a head-tracking backend when a camera is available. `yolo` uses a local YOLO face detector, `mediapipe` comes from the `reachy_mini_toolbox` package, and `none` disables head tracking while keeping camera capture. Requires the matching optional extra. |
 | `--no-camera` | `False` | Run without camera capture or head tracking. |
 | `--local-vision` | `False` | Use the local vision model (SmolVLM2) for camera-tool requests instead of the selected realtime backend. Requires `local_vision` extra to be installed. |
 | `--gradio` | `False` | Launch the Gradio web UI. Without this flag, runs in console mode. Required when running in simulation mode. |
@@ -260,8 +267,11 @@ When the app connects to an official simulated daemon, it detects `simulation_en
 # Run with MediaPipe head tracking
 reachy-mini-conversation-app --head-tracker mediapipe
 
-# Run with the YOLO face-detection backend for head tracking
-reachy-mini-conversation-app --head-tracker yolo
+# Run with the default YOLO face-detection backend for head tracking
+reachy-mini-conversation-app
+
+# Disable head tracking while keeping camera capture
+reachy-mini-conversation-app --head-tracker none
 
 # Run with local vision processing (requires local_vision extra)
 reachy-mini-conversation-app --local-vision
@@ -271,6 +281,12 @@ reachy-mini-conversation-app --no-camera
 
 # Launch with Gradio web interface
 reachy-mini-conversation-app --gradio
+```
+
+The YOLO tracker can take longer to start the first time because it loads the face-detection model in a subprocess. If startup times out on a slow or cold machine, increase the startup wait:
+
+```bash
+REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation-app --gradio
 ```
 
 > [!WARNING]

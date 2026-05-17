@@ -244,6 +244,8 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
     def _with_memory_context(self, instructions: str) -> str:
         """Append model-visible long-term memory context to provider instructions."""
+        if not config.MEMORY_CONTEXT_ENABLED:
+            return instructions
         if not self.memory_context_provider.enabled:
             return instructions
         try:
@@ -310,6 +312,8 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         task.add_done_callback(self._memory_tasks.discard)
 
     async def _refresh_memory_context_for_user_transcript(self, transcript: str) -> None:
+        if not config.MEMORY_CONTEXT_ENABLED:
+            return
         if not self.memory_context_provider.enabled:
             return
         try:
@@ -333,6 +337,17 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 self._agent_message_log.update_system_message(instructions)
         except Exception:
             logger.debug("Failed to refresh relevant memory context.", exc_info=True)
+
+    def _schedule_memory_context_refresh(self, transcript: str) -> None:
+        if not config.MEMORY_CONTEXT_ENABLED or not self.memory_context_provider.enabled:
+            return
+
+        async def _refresh() -> None:
+            await self._refresh_memory_context_for_user_transcript(transcript)
+
+        task = asyncio.create_task(_refresh(), name="memory-context-refresh")
+        self._memory_tasks.add(task)
+        task.add_done_callback(self._memory_tasks.discard)
 
     async def _drain_memory_tasks(self) -> None:
         if not self._memory_tasks:
@@ -944,7 +959,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         self._turn_first_audio_at = None
 
                         self._schedule_memory_message("user", transcript)
-                        await self._refresh_memory_context_for_user_transcript(transcript)
+                        self._schedule_memory_context_refresh(transcript)
                         self._agent_message_log.append("user", transcript)
                         self._agent_message_log.log("auto response after user transcript")
                         await self.output_queue.put(AdditionalOutputs({"role": "user", "content": transcript}))

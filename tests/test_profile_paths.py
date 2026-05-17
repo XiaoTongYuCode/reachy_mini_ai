@@ -74,15 +74,72 @@ def test_prompts_load_from_compact_builtin_profile(monkeypatch: pytest.MonkeyPat
     """Prompt loading should read compact built-in profile instructions directly."""
     monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", "mad_scientist_assistant")
     monkeypatch.setattr(config, "PROFILES_DIRECTORY", DEFAULT_PROFILES_DIRECTORY)
+    monkeypatch.setattr(prompts_mod, "_detect_current_address", lambda: "Shanghai")
+    monkeypatch.setattr(prompts_mod, "_detect_current_weather", lambda: "晴，25°C，湿度 50%，风速 8 km/h")
 
     expected = (
         (DEFAULT_PROFILES_DIRECTORY / "mad_scientist_assistant" / "instructions.txt")
         .read_text(encoding="utf-8")
         .strip()
     )
+    instructions = prompts_mod.get_session_instructions()
 
-    assert prompts_mod.get_session_instructions() == expected
+    assert instructions.startswith(expected)
+    assert "## 基础信息" in instructions
+    assert "当前时间：" in instructions
+    assert "当前地址：Shanghai" in instructions
+    assert "当前天气：晴，25°C，湿度 50%，风速 8 km/h" in instructions
     assert read_instructions_for("mad_scientist_assistant") == expected
+
+
+def test_prompts_append_base_info_when_address_detection_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prompt loading should always append base runtime information."""
+    monkeypatch.setattr(config, "REACHY_MINI_CUSTOM_PROFILE", None)
+    monkeypatch.setattr(prompts_mod, "_detect_current_address", lambda: "未配置")
+    monkeypatch.setattr(prompts_mod, "_detect_current_weather", lambda: "未配置")
+
+    instructions = prompts_mod.get_session_instructions()
+
+    assert instructions.endswith("不要编造天气。")
+    assert "## 基础信息" in instructions
+    assert "当前时间：" in instructions
+    assert "当前地址：未配置" in instructions
+    assert "当前天气：未配置" in instructions
+
+
+def test_format_ipwhois_address() -> None:
+    """IP geolocation payloads should format into a compact address."""
+    payload = {"success": True, "city": "Shanghai", "region": "Shanghai", "country": "China"}
+
+    assert prompts_mod._format_ipwhois_address(payload) == "Shanghai, China"
+
+
+def test_format_weatherapi_location_query() -> None:
+    """WeatherAPI location query should prefer latitude and longitude."""
+    payload = {"latitude": 31.23, "longitude": 121.47, "city": "Shanghai", "country": "China"}
+
+    assert prompts_mod._format_weatherapi_location_query(payload) == "31.23,121.47"
+
+
+def test_format_weatherapi_location_query_skips_unknown_location() -> None:
+    """WeatherAPI should not be queried with the unresolved address placeholder."""
+    payload = {"success": False, "message": "reserved range"}
+
+    assert prompts_mod._format_weatherapi_location_query(payload) == ""
+
+
+def test_format_weatherapi_current() -> None:
+    """WeatherAPI current weather payloads should format into concise text."""
+    payload = {
+        "current": {
+            "temp_c": 25.4,
+            "humidity": 50,
+            "wind_kph": 8.2,
+            "condition": {"text": "晴"},
+        }
+    }
+
+    assert prompts_mod._format_weatherapi_current(payload) == "晴，25.4°C，湿度 50%，风速 8.2 km/h"
 
 
 def test_builtin_default_profile_tools_load_for_ui() -> None:

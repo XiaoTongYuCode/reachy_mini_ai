@@ -210,3 +210,33 @@ def test_head_tracker_bootstrap_adds_src_parent_to_pythonpath(
         assert pythonpath.split(os.pathsep)[0] == str(Path(next(iter(package_locations))).resolve().parent)
     finally:
         tracker.close()
+
+
+def test_head_tracker_uses_start_timeout_from_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The YOLO subprocess startup timeout should be configurable for slow first starts."""
+    _patch_fake_worker(
+        monkeypatch,
+        tmp_path,
+        """
+        _send_message(("ready", None))
+
+        while True:
+            try:
+                message = _receive_message()
+            except EOFError:
+                raise SystemExit(0)
+
+            if message[0] == "close":
+                raise SystemExit(0)
+        """,
+    )
+    monkeypatch.setenv("REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS", "123.5")
+
+    tracker = YoloHeadTrackerProcess()
+    try:
+        assert tracker.start_timeout == 123.5
+    finally:
+        tracker.close()

@@ -85,10 +85,18 @@ GEMINI_AVAILABLE_VOICES: list[str] = [
     "Zephyr",
 ]
 
+ARK_AVAILABLE_VOICES: list[str] = [
+    "zh_female_vv_jupiter_bigtts",
+    "zh_female_xiaohe_jupiter_bigtts",
+    "zh_male_yunzhou_jupiter_bigtts",
+    "zh_male_xiaotian_jupiter_bigtts",
+    "zh_female_cancan",
+]
+
 OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
 HF_BACKEND = "huggingface"
-PIPELINE_BACKEND = "pipeline"
+ARK_BACKEND = "ark"
 DEFAULT_BACKEND_PROVIDER = HF_BACKEND
 HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
 HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
@@ -98,6 +106,10 @@ HF_REALTIME_LANGUAGE_ENV = "HF_REALTIME_LANGUAGE"
 HF_LOCAL_CONNECTION_MODE = "local"
 HF_DEPLOYED_CONNECTION_MODE = "deployed"
 HF_REALTIME_SESSION_PROXY_URL = "https://pollen-robotics-reachy-mini-realtime-url.hf.space/session"
+ARK_REALTIME_WS_URL_ENV = "ARK_REALTIME_WS_URL"
+ARK_REALTIME_DEFAULT_WS_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
+ARK_REALTIME_DEFAULT_RESOURCE_ID = "volc.speech.dialog"
+ARK_REALTIME_DEFAULT_VOICE = "zh_female_vv_jupiter_bigtts"
 
 
 @dataclass(frozen=True)
@@ -121,19 +133,19 @@ DEFAULT_MODEL_NAME_BY_BACKEND = {
     OPENAI_BACKEND: "gpt-realtime",
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
     HF_BACKEND: HF_DEFAULTS.model_name,
-    PIPELINE_BACKEND: "gpt-4o-mini",
+    ARK_BACKEND: "",
 }
 BACKEND_LABEL_BY_PROVIDER = {
     OPENAI_BACKEND: "OpenAI Realtime",
     GEMINI_BACKEND: "Gemini Live",
     HF_BACKEND: "Hugging Face",
-    PIPELINE_BACKEND: "Local Pipeline",
+    ARK_BACKEND: "Volcengine Realtime",
 }
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
     GEMINI_BACKEND: "Kore",
     HF_BACKEND: HF_DEFAULTS.voice,
-    PIPELINE_BACKEND: HF_DEFAULTS.voice,
+    ARK_BACKEND: ARK_REALTIME_DEFAULT_VOICE,
 }
 
 logger = logging.getLogger(__name__)
@@ -201,6 +213,18 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
     logger.warning("Invalid boolean value for %s=%r, using default=%s", name, raw, default)
     return default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Parse an integer environment variable."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid integer value for %s=%r, using default=%s", name, raw, default)
+        return default
 
 
 def _normalize_hf_connection_mode(value: str | None) -> str | None:
@@ -372,12 +396,32 @@ class Config:
     HF_REALTIME_SESSION_URL = HF_DEFAULTS.session_url
     HF_REALTIME_WS_URL = os.getenv(HF_REALTIME_WS_URL_ENV)
     HF_REALTIME_AUTO_START = _env_flag(HF_REALTIME_AUTO_START_ENV, default=False)
-    HF_REALTIME_LANGUAGE = (os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language).strip() or HF_DEFAULTS.language
+    HF_REALTIME_LANGUAGE = (
+        os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language
+    ).strip() or HF_DEFAULTS.language
     HF_HOME = os.getenv("HF_HOME", "./cache")
-    PIPELINE_LLM_PROVIDER = (os.getenv("PIPELINE_LLM_PROVIDER") or "openai").strip().lower()
-    PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL") or MODEL_NAME
-    PIPELINE_LLM_API_KEY = os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY") or OPENAI_API_KEY
-    PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
+    ARK_REALTIME_WS_URL = os.getenv(ARK_REALTIME_WS_URL_ENV) or ARK_REALTIME_DEFAULT_WS_URL
+    ARK_REALTIME_APP_ID = (
+        os.getenv("ARK_REALTIME_APP_ID") or os.getenv("VOLCENGINE_REALTIME_APP_ID") or os.getenv("VOLC_APP_ID")
+    )
+    ARK_REALTIME_ACCESS_KEY = (
+        os.getenv("ARK_REALTIME_ACCESS_KEY")
+        or os.getenv("VOLCENGINE_REALTIME_ACCESS_KEY")
+        or os.getenv("VOLCENGINE_REALTIME_ACCESS_TOKEN")
+        or os.getenv("VOLC_ACCESS_KEY")
+    )
+    ARK_REALTIME_APP_KEY = (
+        os.getenv("ARK_REALTIME_APP_KEY") or os.getenv("VOLCENGINE_REALTIME_APP_KEY") or os.getenv("VOLC_APP_KEY")
+    )
+    ARK_REALTIME_RESOURCE_ID = (
+        os.getenv("ARK_REALTIME_RESOURCE_ID")
+        or os.getenv("VOLCENGINE_REALTIME_RESOURCE_ID")
+        or os.getenv("VOLC_RESOURCE_ID")
+        or ARK_REALTIME_DEFAULT_RESOURCE_ID
+    )
+    ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
+    ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
+    ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
     LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     HF_TOKEN = os.getenv("HF_TOKEN")  # Optional, falls back to hf auth login if not set
 
@@ -400,6 +444,7 @@ class Config:
     _tools_directory_env = os.getenv("REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY")
     TOOLS_DIRECTORY = Path(_tools_directory_env) if _tools_directory_env else None
     AUTOLOAD_EXTERNAL_TOOLS = _env_flag("AUTOLOAD_EXTERNAL_TOOLS", default=False)
+    MEMORY_CONTEXT_ENABLED = _env_flag("REACHY_MINI_MEMORY_CONTEXT_ENABLED", default=False)
     MEMORY_AUTO_EXTRACT = _env_flag("REACHY_MINI_MEMORY_AUTO_EXTRACT", default=False)
     REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
 
@@ -488,14 +533,31 @@ def refresh_runtime_config_from_env() -> None:
         os.getenv(HF_REALTIME_LANGUAGE_ENV) or HF_DEFAULTS.language
     ).strip() or HF_DEFAULTS.language
     config.HF_HOME = os.getenv("HF_HOME", "./cache")
-    config.PIPELINE_LLM_PROVIDER = (os.getenv("PIPELINE_LLM_PROVIDER") or "openai").strip().lower()
-    config.PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL") or config.MODEL_NAME
-    config.PIPELINE_LLM_API_KEY = (
-        os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY") or config.OPENAI_API_KEY
+    config.ARK_REALTIME_WS_URL = os.getenv(ARK_REALTIME_WS_URL_ENV) or ARK_REALTIME_DEFAULT_WS_URL
+    config.ARK_REALTIME_APP_ID = (
+        os.getenv("ARK_REALTIME_APP_ID") or os.getenv("VOLCENGINE_REALTIME_APP_ID") or os.getenv("VOLC_APP_ID")
     )
-    config.PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
+    config.ARK_REALTIME_ACCESS_KEY = (
+        os.getenv("ARK_REALTIME_ACCESS_KEY")
+        or os.getenv("VOLCENGINE_REALTIME_ACCESS_KEY")
+        or os.getenv("VOLCENGINE_REALTIME_ACCESS_TOKEN")
+        or os.getenv("VOLC_ACCESS_KEY")
+    )
+    config.ARK_REALTIME_APP_KEY = (
+        os.getenv("ARK_REALTIME_APP_KEY") or os.getenv("VOLCENGINE_REALTIME_APP_KEY") or os.getenv("VOLC_APP_KEY")
+    )
+    config.ARK_REALTIME_RESOURCE_ID = (
+        os.getenv("ARK_REALTIME_RESOURCE_ID")
+        or os.getenv("VOLCENGINE_REALTIME_RESOURCE_ID")
+        or os.getenv("VOLC_RESOURCE_ID")
+        or ARK_REALTIME_DEFAULT_RESOURCE_ID
+    )
+    config.ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
+    config.ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
+    config.ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
     config.LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "HuggingFaceTB/SmolVLM2-2.2B-Instruct")
     config.HF_TOKEN = os.getenv("HF_TOKEN")
+    config.MEMORY_CONTEXT_ENABLED = _env_flag("REACHY_MINI_MEMORY_CONTEXT_ENABLED", default=False)
     config.MEMORY_AUTO_EXTRACT = _env_flag("REACHY_MINI_MEMORY_AUTO_EXTRACT", default=False)
     config.REACHY_MINI_CUSTOM_PROFILE = LOCKED_PROFILE or os.getenv("REACHY_MINI_CUSTOM_PROFILE")
 
@@ -523,7 +585,9 @@ def get_available_voices_for_backend(backend: str | None = None) -> list[str]:
     normalized_backend = get_backend_choice() if backend is None else _normalize_backend_provider(backend)
     if normalized_backend == GEMINI_BACKEND:
         return list(GEMINI_AVAILABLE_VOICES)
-    if normalized_backend in {HF_BACKEND, PIPELINE_BACKEND}:
+    if normalized_backend == ARK_BACKEND:
+        return list(ARK_AVAILABLE_VOICES)
+    if normalized_backend == HF_BACKEND:
         return list(HF_AVAILABLE_VOICES)
     return list(AVAILABLE_VOICES)
 
@@ -575,19 +639,17 @@ def has_hf_realtime_target() -> bool:
     return get_hf_connection_selection().has_target
 
 
-def has_pipeline_runtime_target() -> bool:
-    """Return whether the experimental pipeline backend has enough runtime configuration to start."""
-    llm_provider = (getattr(config, "PIPELINE_LLM_PROVIDER", "") or "").strip().lower()
-    llm_base_url = (getattr(config, "PIPELINE_LLM_BASE_URL", None) or os.getenv("GATEWAY_LLM_BASE_URL") or "").strip()
-    llm_model = (getattr(config, "PIPELINE_LLM_MODEL", None) or os.getenv("GATEWAY_LLM_MODEL") or "").strip()
-
-    if not llm_base_url or not llm_model:
-        return False
-    if llm_provider == "openai":
-        # Local OpenAI-compatible servers may not require a key. Hosted providers
-        # such as OpenRouter can set GATEWAY_LLM_API_KEY or PIPELINE_LLM_API_KEY.
-        return True
-    return True
+def has_ark_realtime_credentials() -> bool:
+    """Return whether Volcengine Realtime has the required websocket credentials."""
+    required = (
+        getattr(config, "ARK_REALTIME_APP_ID", None),
+        getattr(config, "ARK_REALTIME_ACCESS_KEY", None),
+        getattr(config, "ARK_REALTIME_APP_KEY", None),
+        getattr(config, "ARK_REALTIME_RESOURCE_ID", None),
+    )
+    return all(bool(str(value).strip()) for value in required if value is not None) and all(
+        value is not None for value in required
+    )
 
 
 def is_gemini_model() -> bool:

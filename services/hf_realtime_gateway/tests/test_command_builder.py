@@ -1,3 +1,5 @@
+import sys
+
 from reachy_mini_hf_realtime_gateway.config import GatewayConfig
 from reachy_mini_hf_realtime_gateway.command_builder import build_command, format_command, redact_command
 
@@ -16,7 +18,9 @@ def test_build_command_uses_chinese_gateway_defaults() -> None:
     command = build_command(_config())
 
     assert command == [
-        "speech-to-speech",
+        sys.executable,
+        "-m",
+        "reachy_mini_hf_realtime_gateway.speech_to_speech_runner",
         "--mode",
         "realtime",
         "--ws_host",
@@ -27,23 +31,35 @@ def test_build_command_uses_chinese_gateway_defaults() -> None:
         "faster-whisper",
         "--language",
         "zh",
+        "--min_silence_ms",
+        "180",
+        "--min_speech_ms",
+        "180",
+        "--speech_pad_ms",
+        "120",
         "--llm_backend",
         "responses-api",
         "--responses_api_base_url",
         "https://llm.example.test/v1",
         "--faster_whisper_stt_model_name",
-        "large-v3",
+        "small",
         "--faster_whisper_stt_gen_language",
         "zh",
         "--faster_whisper_stt_device",
         "auto",
         "--faster_whisper_stt_compute_type",
         "auto",
+        "--faster_whisper_stt_gen_max_new_tokens",
+        "64",
+        "--faster_whisper_stt_gen_beam_size",
+        "1",
         "--responses_api_api_key",
         "secret-key",
         "--model_name",
         "test-model",
         "--responses_api_stream",
+        "--stream_batch_sentences",
+        "1",
         "--tts",
         "qwen3",
         "--qwen3_tts_model_name",
@@ -54,8 +70,16 @@ def test_build_command_uses_chinese_gateway_defaults() -> None:
         "Chinese",
         "--qwen3_tts_mlx_quantization",
         "6bit",
-        "--enable_live_transcription",
+        "--no_enable_live_transcription",
     ]
+
+
+def test_build_command_includes_live_transcription_when_enabled() -> None:
+    command = build_command(_config(enable_live_transcription=True))
+
+    assert "--enable_live_transcription" in command
+    assert "--no_enable_live_transcription" not in command
+    assert command[command.index("--live_transcription_update_interval") + 1] == "0.12"
 
 
 def test_build_command_omits_optional_api_key_and_boolean_flags() -> None:
@@ -70,6 +94,13 @@ def test_build_command_omits_optional_api_key_and_boolean_flags() -> None:
     assert "--responses_api_api_key" not in command
     assert "--responses_api_stream" not in command
     assert "--enable_live_transcription" not in command
+    assert "--no_enable_live_transcription" in command
+
+
+def test_build_command_can_disable_responses_api_thinking_flag() -> None:
+    command = build_command(_config(responses_api_disable_thinking=False))
+
+    assert "--no_responses_api_disable_thinking" in command
 
 
 def test_build_command_uses_shared_stt_model_name_for_non_faster_whisper() -> None:
@@ -79,6 +110,13 @@ def test_build_command_uses_shared_stt_model_name_for_non_faster_whisper() -> No
     assert "whisper-mlx" in command
     assert "--stt_model_name" in command
     assert "--faster_whisper_stt_model_name" not in command
+
+
+def test_build_command_respects_custom_speech_to_speech_binary() -> None:
+    command = build_command(_config(speech_to_speech_bin="/opt/bin/speech-to-speech"))
+
+    assert command[0] == "/opt/bin/speech-to-speech"
+    assert "-m" not in command[:3]
 
 
 def test_build_command_omits_qwen3_options_for_other_tts_backend() -> None:

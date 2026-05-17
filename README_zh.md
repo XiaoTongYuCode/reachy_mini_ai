@@ -34,6 +34,7 @@ tags:
   - **Hugging Face**：默认方案，可使用内置 Hugging Face 服务器或你自己的本地端点。
   - **OpenAI Realtime**（`gpt-realtime`）：需要 `OPENAI_API_KEY`。
   - **Gemini Live**（`gemini-3.1-flash-live-preview`）：需要 `GEMINI_API_KEY`。
+  - **Volcengine Realtime**：需要火山引擎语音服务的 `X-Api-*` 凭据。
 - 视觉处理默认使用你选择的实时后端（调用相机工具时）；也可通过 `--local-vision` 启用基于 SmolVLM2 的本地视觉（CPU/GPU/MPS）。
 - 分层动作系统会队列化主动作（舞蹈、情绪、goto 姿态、呼吸），并叠加说话响应式晃动与头部跟踪。
 - 异步工具调度通过带实时转写的 Gradio Web UI 集成机器人动作、相机采集和可选的头部跟踪能力。
@@ -129,16 +130,22 @@ pip install -e .[dev]                   # 开发工具
 |----------|-------------|
 | `OPENAI_API_KEY` | OpenAI Realtime 模式必需。 |
 | `GEMINI_API_KEY` | Gemini 模式必需。也支持 `GOOGLE_API_KEY`。可在 [aistudio.google.com](https://aistudio.google.com/apikey) 获取。 |
-| `BACKEND_PROVIDER` | 要使用的实时后端：`huggingface`（默认）、`openai` 或 `gemini`。 |
+| `BACKEND_PROVIDER` | 要使用的实时后端：`huggingface`（默认）、`openai`、`gemini` 或 `ark`。 |
 | `MODEL_NAME` | OpenAI Realtime 或 Gemini Live 的可选模型覆盖。OpenAI 默认 `gpt-realtime`，Gemini 默认 `gemini-3.1-flash-live-preview`。Hugging Face 使用服务器侧模型选择。 |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face 连接模式：`deployed` 使用内置 Hugging Face 服务器；`local` 使用 `HF_REALTIME_WS_URL`。默认 `deployed`。 |
-| `HF_REALTIME_LANGUAGE` | Hugging Face Realtime 的语音识别语言提示。默认 `zh`，适合中文；如需后端自动检测，可设为 `auto`。内置云端服务可能会忽略该值，因为实际 STT 由服务端启动参数决定；如果需要稳定中文识别，请使用本地网关，并在 `services/hf_realtime_gateway/.env` 中配置 `GATEWAY_STT=faster-whisper` 和 `GATEWAY_LANGUAGE=zh`。 |
+| `HF_REALTIME_LANGUAGE` | Hugging Face Realtime 的语音识别语言提示。默认 `zh`，适合中文；如需后端自动检测，可设为 `auto`。内置云端服务可能会忽略该值，因为实际 STT 由服务端启动参数决定；如果需要稳定中文识别，请使用本地网关，并在仓库根目录 `.env` 中配置 `GATEWAY_STT=faster-whisper` 和 `GATEWAY_LANGUAGE=zh`。 |
 | `HF_REALTIME_WS_URL` | 你自己的 Hugging Face 后端的 websocket 端点。可填基础 URL（如 `ws://127.0.0.1:8765/v1`）或完整 websocket URL（`ws://127.0.0.1:8765/v1/realtime`）。在 `HF_REALTIME_CONNECTION_MODE=local` 时使用。 |
 | `HF_REALTIME_AUTO_START` | 可选。与 `HF_REALTIME_CONNECTION_MODE=local` 一起设为 `true` 时，应用会在连接 `HF_REALTIME_WS_URL` 前启动 `reachy-mini-hf-realtime-gateway`。若存在 `services/hf_realtime_gateway/.venv/bin/reachy-mini-hf-realtime-gateway` 会优先使用，否则该命令必须已安装并在 `PATH` 中。默认 `false`。 |
 | `HF_REALTIME_AUTO_START_TIMEOUT_SECONDS` | 可选。`HF_REALTIME_AUTO_START` 的就绪等待超时时间，单位秒。首次本地模型下载/预热可能需要几分钟。默认 `600`。 |
 | `HF_HOME` | 本地 Hugging Face 下载缓存目录（仅 `--local-vision` 使用，默认 `./cache`）。 |
 | `HF_TOKEN` | 可选的 Hugging Face 访问令牌（用于受限/私有资产）。 |
 | `LOCAL_VISION_MODEL` | 本地视觉处理的 Hugging Face 模型路径（仅 `--local-vision` 使用，默认 `HuggingFaceTB/SmolVLM2-2.2B-Instruct`）。 |
+| `REACHY_MINI_MEMORY_CONTEXT_ENABLED` | 可选。设为 `true` 时，每次用户转录后会刷新模型可见的长期记忆上下文。默认 `false`，以保证实时首答最快。 |
+| `ARK_REALTIME_APP_ID` / `VOLCENGINE_REALTIME_APP_ID` / `VOLC_APP_ID` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-App-ID`。 |
+| `ARK_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_TOKEN` / `VOLC_ACCESS_KEY` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-Access-Key`。 |
+| `ARK_REALTIME_APP_KEY` / `VOLCENGINE_REALTIME_APP_KEY` / `VOLC_APP_KEY` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-App-Key`。 |
+| `ARK_REALTIME_RESOURCE_ID` / `VOLCENGINE_REALTIME_RESOURCE_ID` / `VOLC_RESOURCE_ID` | `BACKEND_PROVIDER=ark` 时可选，默认 `volc.speech.dialog`。 |
+| `ARK_REALTIME_WS_URL` | 可选火山引擎 Realtime websocket URL，默认 `wss://openspeech.bytedance.com/api/v3/realtime/dialogue`。 |
 | `VOLCENGINE_WEB_SEARCH_API_KEY` | 仅 `web_search` 工具需要。使用火山引擎联网搜索产品的 APIKey 接入地址，不使用 Ark Responses 插件。 |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | 可选联网搜索 API URL，默认 `https://open.feedcoopapi.com/search_api/web_search`。 |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | `web_search` 单次调用超时时间，默认 `30` 秒。 |
@@ -153,7 +160,7 @@ HF_REALTIME_CONNECTION_MODE=deployed
 HF_REALTIME_LANGUAGE=zh
 ```
 
-内置云端服务会自行选择 STT 后端。如果中文语音仍被识别成英文，请切换到本地网关，让 `services/hf_realtime_gateway/.env` 控制 STT 模型和语言。
+内置云端服务会自行选择 STT 后端。如果中文语音仍被识别成英文，请切换到本地网关，让仓库根目录 `.env` 控制 STT 模型和语言。
 
 在与你的对话应用同一台机器上，运行 [speech-to-speech](https://github.com/huggingface/speech-to-speech) 作为自建实时语音后端：
 
@@ -247,7 +254,7 @@ reachy-mini-conversation-app --no-camera --gradio
 
 | 选项 | 默认值 | 说明 |
 |--------|---------|-------------|
-| `--head-tracker {yolo,mediapipe}` | `None` | 在相机可用时选择头部跟踪后端。`yolo` 使用本地 YOLO 人脸检测器，`mediapipe` 来自 `reachy_mini_toolbox` 包。需要安装对应 optional extra。 |
+| `--head-tracker {none,yolo,mediapipe}` | `yolo` | 在相机可用时选择头部跟踪后端。`yolo` 使用本地 YOLO 人脸检测器，`mediapipe` 来自 `reachy_mini_toolbox` 包，`none` 会在保留相机采集的情况下禁用头部跟踪。需要安装对应 optional extra。 |
 | `--no-camera` | `False` | 不使用相机采集和头部跟踪。 |
 | `--local-vision` | `False` | 在相机工具请求时使用本地视觉模型（SmolVLM2），而不是所选实时后端。需要安装 `local_vision` extra。 |
 | `--gradio` | `False` | 启动 Gradio Web UI。不加该参数时以控制台模式运行。仿真模式下必需。 |
@@ -260,8 +267,11 @@ reachy-mini-conversation-app --no-camera --gradio
 # 使用 MediaPipe 头部跟踪运行
 reachy-mini-conversation-app --head-tracker mediapipe
 
-# 使用 YOLO 人脸检测后端进行头部跟踪
-reachy-mini-conversation-app --head-tracker yolo
+# 使用默认 YOLO 人脸检测后端进行头部跟踪
+reachy-mini-conversation-app
+
+# 保留相机采集，但关闭头部跟踪
+reachy-mini-conversation-app --head-tracker none
 
 # 使用本地视觉处理运行（需要 local_vision extra）
 reachy-mini-conversation-app --local-vision
@@ -271,6 +281,12 @@ reachy-mini-conversation-app --no-camera
 
 # 启动 Gradio Web 界面
 reachy-mini-conversation-app --gradio
+```
+
+YOLO tracker 首次启动可能较慢，因为它会在子进程里加载人脸检测模型。如果冷启动时超时，可以临时调大启动等待时间：
+
+```bash
+REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation-app --gradio
 ```
 
 > [!WARNING]

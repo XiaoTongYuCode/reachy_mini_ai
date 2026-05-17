@@ -8,7 +8,17 @@ import pytest
 from reachy_mini_conversation_app.utils import (
     CameraVisionInitializationError,
     initialize_camera_and_vision,
+    parse_args,
 )
+
+
+def test_parse_args_defaults_to_yolo_head_tracker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Head tracking should be enabled with the YOLO backend by default."""
+    monkeypatch.setattr("sys.argv", ["reachy-mini-conversation-app"])
+
+    args, _ = parse_args()
+
+    assert args.head_tracker == "yolo"
 
 
 def test_initialize_camera_and_vision_propagates_local_vision_init_failures() -> None:

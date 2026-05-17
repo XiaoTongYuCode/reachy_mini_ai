@@ -75,6 +75,12 @@ def test_backend_provider_rejects_explicit_unknown_backend() -> None:
         config_mod._normalize_backend_provider("openia", None)
 
 
+def test_backend_provider_accepts_ark_backend() -> None:
+    """Volcengine realtime should be an explicit backend selector."""
+    assert config_mod._normalize_backend_provider("ark", None) == config_mod.ARK_BACKEND
+    assert config_mod._resolve_model_name(config_mod.ARK_BACKEND, None) == ""
+
+
 def test_huggingface_backend_does_not_resolve_model_name() -> None:
     """Hugging Face should rely on the server's model selection."""
     assert config_mod._resolve_model_name(config_mod.HF_BACKEND, None) == ""
@@ -94,12 +100,14 @@ def test_refresh_runtime_config_reloads_hf_runtime_fields(monkeypatch: pytest.Mo
     monkeypatch.setenv("LOCAL_VISION_MODEL", "test/local-vision-model")
     monkeypatch.setenv("HF_REALTIME_AUTO_START", "true")
     monkeypatch.setenv("HF_REALTIME_LANGUAGE", "auto")
+    monkeypatch.setenv("REACHY_MINI_MEMORY_CONTEXT_ENABLED", "true")
 
     monkeypatch.setattr(config_mod.config, "HF_TOKEN", None)
     monkeypatch.setattr(config_mod.config, "HF_HOME", "./old-cache")
     monkeypatch.setattr(config_mod.config, "LOCAL_VISION_MODEL", "old/model")
     monkeypatch.setattr(config_mod.config, "HF_REALTIME_AUTO_START", False)
     monkeypatch.setattr(config_mod.config, "HF_REALTIME_LANGUAGE", "zh")
+    monkeypatch.setattr(config_mod.config, "MEMORY_CONTEXT_ENABLED", False)
 
     config_mod.refresh_runtime_config_from_env()
 
@@ -108,6 +116,41 @@ def test_refresh_runtime_config_reloads_hf_runtime_fields(monkeypatch: pytest.Mo
     assert config_mod.config.LOCAL_VISION_MODEL == "test/local-vision-model"
     assert config_mod.config.HF_REALTIME_AUTO_START is True
     assert config_mod.config.HF_REALTIME_LANGUAGE == "auto"
+    assert config_mod.config.MEMORY_CONTEXT_ENABLED is True
+
+
+def test_refresh_runtime_config_reloads_ark_runtime_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Volcengine Realtime env aliases should feed runtime config."""
+    original_values = {
+        "BACKEND_PROVIDER": config_mod.config.BACKEND_PROVIDER,
+        "MODEL_NAME": config_mod.config.MODEL_NAME,
+        "ARK_REALTIME_APP_ID": config_mod.config.ARK_REALTIME_APP_ID,
+        "ARK_REALTIME_ACCESS_KEY": config_mod.config.ARK_REALTIME_ACCESS_KEY,
+        "ARK_REALTIME_APP_KEY": config_mod.config.ARK_REALTIME_APP_KEY,
+        "ARK_REALTIME_RESOURCE_ID": config_mod.config.ARK_REALTIME_RESOURCE_ID,
+        "ARK_REALTIME_WS_URL": config_mod.config.ARK_REALTIME_WS_URL,
+    }
+    monkeypatch.setenv("BACKEND_PROVIDER", "ark")
+    monkeypatch.setenv("VOLC_APP_ID", "app-id")
+    monkeypatch.setenv("VOLC_ACCESS_KEY", "access-key")
+    monkeypatch.setenv("VOLC_APP_KEY", "app-key")
+    monkeypatch.setenv("VOLC_RESOURCE_ID", "volc.speech.dialog")
+    monkeypatch.setenv("ARK_REALTIME_WS_URL", "wss://example.test/realtime")
+
+    try:
+        config_mod.refresh_runtime_config_from_env()
+
+        assert config_mod.config.BACKEND_PROVIDER == config_mod.ARK_BACKEND
+        assert config_mod.config.MODEL_NAME == ""
+        assert config_mod.config.ARK_REALTIME_APP_ID == "app-id"
+        assert config_mod.config.ARK_REALTIME_ACCESS_KEY == "access-key"
+        assert config_mod.config.ARK_REALTIME_APP_KEY == "app-key"
+        assert config_mod.config.ARK_REALTIME_RESOURCE_ID == "volc.speech.dialog"
+        assert config_mod.config.ARK_REALTIME_WS_URL == "wss://example.test/realtime"
+        assert config_mod.has_ark_realtime_credentials() is True
+    finally:
+        for name, value in original_values.items():
+            monkeypatch.setattr(config_mod.config, name, value)
 
 
 @pytest.mark.parametrize(

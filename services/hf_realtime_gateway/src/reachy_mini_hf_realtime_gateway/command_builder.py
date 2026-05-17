@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import shlex
 import re
+import shlex
+import sys
 from collections.abc import Sequence
 
-from reachy_mini_hf_realtime_gateway.config import GatewayConfig
+from reachy_mini_hf_realtime_gateway.config import DEFAULT_SPEECH_TO_SPEECH_BIN, GatewayConfig
 
 
 SECRET_VALUE_FLAGS = frozenset(
@@ -26,23 +27,31 @@ SECRET_VALUE_PATTERNS = tuple(
 def build_command(config: GatewayConfig) -> list[str]:
     """Build the speech-to-speech realtime gateway command."""
     config.validate()
-    command = [
-        config.speech_to_speech_bin,
-        "--mode",
-        "realtime",
-        "--ws_host",
-        config.host,
-        "--ws_port",
-        str(config.port),
-        "--stt",
-        config.stt,
-        "--language",
-        config.language,
-        "--llm_backend",
-        config.llm_backend,
-        "--responses_api_base_url",
-        config.llm_base_url,
-    ]
+    command = _speech_to_speech_command_prefix(config)
+    command.extend(
+        [
+            "--mode",
+            "realtime",
+            "--ws_host",
+            config.host,
+            "--ws_port",
+            str(config.port),
+            "--stt",
+            config.stt,
+            "--language",
+            config.language,
+            "--min_silence_ms",
+            str(config.vad_min_silence_ms),
+            "--min_speech_ms",
+            str(config.vad_min_speech_ms),
+            "--speech_pad_ms",
+            str(config.vad_speech_pad_ms),
+            "--llm_backend",
+            config.llm_backend,
+            "--responses_api_base_url",
+            config.llm_base_url,
+        ]
+    )
 
     if config.stt == "faster-whisper":
         command.extend(
@@ -55,6 +64,10 @@ def build_command(config: GatewayConfig) -> list[str]:
                 config.faster_whisper_stt_device,
                 "--faster_whisper_stt_compute_type",
                 config.faster_whisper_stt_compute_type,
+                "--faster_whisper_stt_gen_max_new_tokens",
+                str(config.faster_whisper_stt_gen_max_new_tokens),
+                "--faster_whisper_stt_gen_beam_size",
+                str(config.faster_whisper_stt_gen_beam_size),
             ]
         )
     else:
@@ -67,6 +80,9 @@ def build_command(config: GatewayConfig) -> list[str]:
 
     if config.responses_api_stream:
         command.append("--responses_api_stream")
+    if not config.responses_api_disable_thinking:
+        command.append("--no_responses_api_disable_thinking")
+    command.extend(["--stream_batch_sentences", str(config.llm_stream_batch_sentences)])
 
     command.extend(["--tts", config.tts])
 
@@ -85,9 +101,24 @@ def build_command(config: GatewayConfig) -> list[str]:
         )
 
     if config.enable_live_transcription:
-        command.append("--enable_live_transcription")
+        command.extend(
+            [
+                "--enable_live_transcription",
+                "--live_transcription_update_interval",
+                str(config.live_transcription_update_interval),
+            ]
+        )
+    else:
+        command.append("--no_enable_live_transcription")
 
     return command
+
+
+def _speech_to_speech_command_prefix(config: GatewayConfig) -> list[str]:
+    """Return the command prefix, applying Reachy runtime patches for the default binary."""
+    if config.speech_to_speech_bin != DEFAULT_SPEECH_TO_SPEECH_BIN:
+        return [config.speech_to_speech_bin]
+    return [sys.executable, "-m", "reachy_mini_hf_realtime_gateway.speech_to_speech_runner"]
 
 
 def redact_command(command: Sequence[str]) -> list[str]:

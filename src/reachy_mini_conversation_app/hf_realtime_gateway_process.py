@@ -143,7 +143,7 @@ def _default_gateway_launch() -> tuple[list[str], Path | None, dict[str, str] | 
     local_command = service_venv_bin / DEFAULT_GATEWAY_COMMAND
     if local_command.is_file():
         command = [str(local_command)]
-        env_file = service_root / ".env"
+        env_file = PROJECT_ROOT / ".env"
         if env_file.is_file():
             command.extend(["--env-file", str(env_file)])
         env = dict(os.environ)

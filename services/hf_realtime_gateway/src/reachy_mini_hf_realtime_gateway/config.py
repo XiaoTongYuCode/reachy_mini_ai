@@ -11,17 +11,24 @@ from dotenv import find_dotenv, load_dotenv
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_STT = "faster-whisper"
-DEFAULT_STT_MODEL = "large-v3"
+DEFAULT_STT_MODEL = "small"
 DEFAULT_FASTER_WHISPER_STT_DEVICE = "auto"
 DEFAULT_FASTER_WHISPER_STT_COMPUTE_TYPE = "auto"
 DEFAULT_LANGUAGE = "zh"
 DEFAULT_LLM_BACKEND = "responses-api"
+DEFAULT_LLM_STREAM_BATCH_SENTENCES = 1
 DEFAULT_TTS = "qwen3"
 DEFAULT_TTS_MODEL = "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"
 DEFAULT_TTS_SPEAKER = "Vivian"
 DEFAULT_TTS_LANGUAGE = "Chinese"
 DEFAULT_QWEN3_TTS_MLX_QUANTIZATION = "6bit"
 DEFAULT_SPEECH_TO_SPEECH_BIN = "speech-to-speech"
+DEFAULT_VAD_MIN_SILENCE_MS = 180
+DEFAULT_VAD_MIN_SPEECH_MS = 180
+DEFAULT_VAD_SPEECH_PAD_MS = 120
+DEFAULT_LIVE_TRANSCRIPTION_UPDATE_INTERVAL = 0.12
+DEFAULT_FASTER_WHISPER_STT_GEN_MAX_NEW_TOKENS = 64
+DEFAULT_FASTER_WHISPER_STT_GEN_BEAM_SIZE = 1
 
 
 class ConfigError(ValueError):
@@ -44,12 +51,20 @@ class GatewayConfig:
     llm_api_key: str = ""
     llm_model: str = ""
     responses_api_stream: bool = True
+    responses_api_disable_thinking: bool = True
+    llm_stream_batch_sentences: int = DEFAULT_LLM_STREAM_BATCH_SENTENCES
     tts: str = DEFAULT_TTS
     tts_model: str = DEFAULT_TTS_MODEL
     tts_speaker: str = DEFAULT_TTS_SPEAKER
     tts_language: str = DEFAULT_TTS_LANGUAGE
     qwen3_tts_mlx_quantization: str = DEFAULT_QWEN3_TTS_MLX_QUANTIZATION
-    enable_live_transcription: bool = True
+    enable_live_transcription: bool = False
+    live_transcription_update_interval: float = DEFAULT_LIVE_TRANSCRIPTION_UPDATE_INTERVAL
+    vad_min_silence_ms: int = DEFAULT_VAD_MIN_SILENCE_MS
+    vad_min_speech_ms: int = DEFAULT_VAD_MIN_SPEECH_MS
+    vad_speech_pad_ms: int = DEFAULT_VAD_SPEECH_PAD_MS
+    faster_whisper_stt_gen_max_new_tokens: int = DEFAULT_FASTER_WHISPER_STT_GEN_MAX_NEW_TOKENS
+    faster_whisper_stt_gen_beam_size: int = DEFAULT_FASTER_WHISPER_STT_GEN_BEAM_SIZE
     speech_to_speech_bin: str = DEFAULT_SPEECH_TO_SPEECH_BIN
 
     @property
@@ -67,6 +82,20 @@ class GatewayConfig:
             raise ConfigError("GATEWAY_LLM_MODEL is required.")
         if not self.speech_to_speech_bin:
             raise ConfigError("GATEWAY_SPEECH_TO_SPEECH_BIN must not be empty.")
+        if self.llm_stream_batch_sentences <= 0:
+            raise ConfigError("GATEWAY_LLM_STREAM_BATCH_SENTENCES must be greater than 0.")
+        if self.live_transcription_update_interval <= 0:
+            raise ConfigError("GATEWAY_LIVE_TRANSCRIPTION_UPDATE_INTERVAL must be greater than 0.")
+        if self.vad_min_silence_ms <= 0:
+            raise ConfigError("GATEWAY_VAD_MIN_SILENCE_MS must be greater than 0.")
+        if self.vad_min_speech_ms <= 0:
+            raise ConfigError("GATEWAY_VAD_MIN_SPEECH_MS must be greater than 0.")
+        if self.vad_speech_pad_ms < 0:
+            raise ConfigError("GATEWAY_VAD_SPEECH_PAD_MS must be greater than or equal to 0.")
+        if self.faster_whisper_stt_gen_max_new_tokens <= 0:
+            raise ConfigError("GATEWAY_FASTER_WHISPER_STT_GEN_MAX_NEW_TOKENS must be greater than 0.")
+        if self.faster_whisper_stt_gen_beam_size <= 0:
+            raise ConfigError("GATEWAY_FASTER_WHISPER_STT_GEN_BEAM_SIZE must be greater than 0.")
 
 
 def load_dotenv_for_gateway(env_file: str | Path | None = None) -> None:
@@ -90,6 +119,14 @@ def _get_int(env: Mapping[str, str], name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise ConfigError(f"{name} must be an integer, got {raw!r}.") from exc
+
+
+def _get_float(env: Mapping[str, str], name: str, default: float) -> float:
+    raw = _get(env, name, str(default))
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number, got {raw!r}.") from exc
 
 
 def _get_bool(env: Mapping[str, str], name: str, default: bool) -> bool:
@@ -132,6 +169,12 @@ def config_from_env(
         llm_api_key=_get(source, "GATEWAY_LLM_API_KEY"),
         llm_model=_get(source, "GATEWAY_LLM_MODEL"),
         responses_api_stream=_get_bool(source, "GATEWAY_RESPONSES_API_STREAM", True),
+        responses_api_disable_thinking=_get_bool(source, "GATEWAY_RESPONSES_API_DISABLE_THINKING", True),
+        llm_stream_batch_sentences=_get_int(
+            source,
+            "GATEWAY_LLM_STREAM_BATCH_SENTENCES",
+            DEFAULT_LLM_STREAM_BATCH_SENTENCES,
+        ),
         tts=_get(source, "GATEWAY_TTS", DEFAULT_TTS),
         tts_model=_get(source, "GATEWAY_TTS_MODEL", DEFAULT_TTS_MODEL),
         tts_speaker=_get(source, "GATEWAY_TTS_SPEAKER", DEFAULT_TTS_SPEAKER),
@@ -141,7 +184,25 @@ def config_from_env(
             "GATEWAY_QWEN3_TTS_MLX_QUANTIZATION",
             DEFAULT_QWEN3_TTS_MLX_QUANTIZATION,
         ),
-        enable_live_transcription=_get_bool(source, "GATEWAY_ENABLE_LIVE_TRANSCRIPTION", True),
+        enable_live_transcription=_get_bool(source, "GATEWAY_ENABLE_LIVE_TRANSCRIPTION", False),
+        live_transcription_update_interval=_get_float(
+            source,
+            "GATEWAY_LIVE_TRANSCRIPTION_UPDATE_INTERVAL",
+            DEFAULT_LIVE_TRANSCRIPTION_UPDATE_INTERVAL,
+        ),
+        vad_min_silence_ms=_get_int(source, "GATEWAY_VAD_MIN_SILENCE_MS", DEFAULT_VAD_MIN_SILENCE_MS),
+        vad_min_speech_ms=_get_int(source, "GATEWAY_VAD_MIN_SPEECH_MS", DEFAULT_VAD_MIN_SPEECH_MS),
+        vad_speech_pad_ms=_get_int(source, "GATEWAY_VAD_SPEECH_PAD_MS", DEFAULT_VAD_SPEECH_PAD_MS),
+        faster_whisper_stt_gen_max_new_tokens=_get_int(
+            source,
+            "GATEWAY_FASTER_WHISPER_STT_GEN_MAX_NEW_TOKENS",
+            DEFAULT_FASTER_WHISPER_STT_GEN_MAX_NEW_TOKENS,
+        ),
+        faster_whisper_stt_gen_beam_size=_get_int(
+            source,
+            "GATEWAY_FASTER_WHISPER_STT_GEN_BEAM_SIZE",
+            DEFAULT_FASTER_WHISPER_STT_GEN_BEAM_SIZE,
+        ),
         speech_to_speech_bin=_get(source, "GATEWAY_SPEECH_TO_SPEECH_BIN", DEFAULT_SPEECH_TO_SPEECH_BIN),
     )
     if validate:
