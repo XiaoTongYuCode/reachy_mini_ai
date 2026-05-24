@@ -75,7 +75,14 @@ class Dance(Tool):
             move_name = random.choice(list(AVAILABLE_MOVES.keys()))
 
         if move_name not in AVAILABLE_MOVES:
-            return {"error": f"Unknown dance move '{move_name}'. Available: {list(AVAILABLE_MOVES.keys())}"}
+            fallback_move = random.choice(list(AVAILABLE_MOVES.keys()))
+            logger.warning(
+                "Unknown dance move %r requested; falling back to random move %r. Available: %s",
+                move_name,
+                fallback_move,
+                list(AVAILABLE_MOVES.keys()),
+            )
+            move_name = fallback_move
 
         # Add dance moves to queue
         movement_manager = deps.movement_manager

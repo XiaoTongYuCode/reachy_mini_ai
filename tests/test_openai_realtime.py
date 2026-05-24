@@ -462,6 +462,7 @@ async def test_memory_context_refresh_clears_stale_openai_context(monkeypatch: A
     monkeypatch.setattr(rt_mod, "get_session_instructions", lambda: "base instructions")
     monkeypatch.setattr(rt_mod, "get_session_voice", lambda default=OPENAI_DEFAULT_VOICE: "alloy")
     monkeypatch.setattr(rt_mod, "get_active_tool_specs", lambda _: [])
+    monkeypatch.setattr(config, "MEMORY_CONTEXT_ENABLED", True)
 
     memory_store = MemoryStore(tmp_path)
     current_session_id = memory_store.create_session(backend="openai", profile="default")
@@ -1306,6 +1307,7 @@ async def test_openai_excludes_head_tracking_when_no_head_tracker(monkeypatch: A
         [
             {"type": "function", "name": "head_tracking", "description": "head_tracking", "parameters": {}},
             {"type": "function", "name": "fake_tool", "description": "fake_tool", "parameters": {}},
+            {"type": "function", "name": "ask_openclaw", "description": "ask_openclaw", "parameters": {}},
         ],
     )
 
@@ -1375,6 +1377,7 @@ async def test_openai_excludes_head_tracking_when_no_head_tracker(monkeypatch: A
     tool_names = [t["name"] for t in session_tools]
     assert "head_tracking" not in tool_names, "case 1 failed: camera_worker=None"
     assert "fake_tool" in tool_names, "case 1 failed: a non-head-tracking tool was unexpectedly excluded"
+    assert "ask_openclaw" in tool_names, "case 1 failed: ask_openclaw was unexpectedly excluded"
 
     # case 2: camera is running but --head-tracker flag was not passed
     session_kwargs.clear()
@@ -1392,3 +1395,4 @@ async def test_openai_excludes_head_tracking_when_no_head_tracker(monkeypatch: A
     tool_names = [t["name"] for t in session_tools]
     assert "head_tracking" not in tool_names, "case 2 failed: camera_worker.head_tracker=None"
     assert "fake_tool" in tool_names, "case 2 failed: a non-head-tracking tool was unexpectedly excluded"
+    assert "ask_openclaw" in tool_names, "case 2 failed: ask_openclaw was unexpectedly excluded"

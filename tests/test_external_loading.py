@@ -90,3 +90,48 @@ def test_builtin_profile_can_load_profile_local_tools(
     core_tools_mod = _reload_core_tools()
 
     assert "sweep_look" in core_tools_mod.ALL_TOOLS
+
+
+def test_default_profile_registers_ask_openclaw_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The built-in default profile should expose OpenClaw when gateway config is complete."""
+    monkeypatch.setattr(config_mod.config, "REACHY_MINI_CUSTOM_PROFILE", "default")
+    monkeypatch.setattr(config_mod.config, "PROFILES_DIRECTORY", config_mod.DEFAULT_PROFILES_DIRECTORY)
+    monkeypatch.setattr(config_mod.config, "TOOLS_DIRECTORY", None)
+    monkeypatch.setattr(config_mod.config, "AUTOLOAD_EXTERNAL_TOOLS", False)
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_GATEWAY_URL", "ws://openclaw.test")
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_TOKEN", "test-token")
+
+    core_tools_mod = _reload_core_tools()
+
+    assert "ask_openclaw" in core_tools_mod.ALL_TOOLS
+    assert any(spec.get("name") == "ask_openclaw" for spec in core_tools_mod.ALL_TOOL_SPECS)
+
+
+def test_default_profile_skips_ask_openclaw_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OpenClaw tool should not be exposed when auth config is missing."""
+    monkeypatch.setattr(config_mod.config, "REACHY_MINI_CUSTOM_PROFILE", "default")
+    monkeypatch.setattr(config_mod.config, "PROFILES_DIRECTORY", config_mod.DEFAULT_PROFILES_DIRECTORY)
+    monkeypatch.setattr(config_mod.config, "TOOLS_DIRECTORY", None)
+    monkeypatch.setattr(config_mod.config, "AUTOLOAD_EXTERNAL_TOOLS", False)
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_GATEWAY_URL", "ws://openclaw.test")
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_TOKEN", "")
+
+    core_tools_mod = _reload_core_tools()
+
+    assert "ask_openclaw" not in core_tools_mod.ALL_TOOLS
+    assert not any(spec.get("name") == "ask_openclaw" for spec in core_tools_mod.ALL_TOOL_SPECS)
+
+
+def test_default_profile_skips_ask_openclaw_without_gateway_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OpenClaw tool should not be exposed when the gateway URL is missing."""
+    monkeypatch.setattr(config_mod.config, "REACHY_MINI_CUSTOM_PROFILE", "default")
+    monkeypatch.setattr(config_mod.config, "PROFILES_DIRECTORY", config_mod.DEFAULT_PROFILES_DIRECTORY)
+    monkeypatch.setattr(config_mod.config, "TOOLS_DIRECTORY", None)
+    monkeypatch.setattr(config_mod.config, "AUTOLOAD_EXTERNAL_TOOLS", False)
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_GATEWAY_URL", "")
+    monkeypatch.setattr(config_mod.config, "OPENCLAW_TOKEN", "test-token")
+
+    core_tools_mod = _reload_core_tools()
+
+    assert "ask_openclaw" not in core_tools_mod.ALL_TOOLS
+    assert not any(spec.get("name") == "ask_openclaw" for spec in core_tools_mod.ALL_TOOL_SPECS)

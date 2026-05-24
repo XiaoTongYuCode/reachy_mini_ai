@@ -23,9 +23,11 @@ Conversational app for the Reachy Mini robot combining realtime voice backends, 
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Backend recipes](#backend-recipes)
 - [Running the app](#running-the-app)
 - [LLM tools](#llm-tools-exposed-to-the-assistant)
 - [Advanced features](#advanced-features)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -38,6 +40,7 @@ Conversational app for the Reachy Mini robot combining realtime voice backends, 
 - Vision processing uses the selected realtime backend by default (when the camera tool is used), with optional on-device local vision using SmolVLM2 (CPU/GPU/MPS) via `--local-vision`.
 - Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and head-tracking.
 - Async tool dispatch integrates robot motion, camera capture, and optional head-tracking capabilities through a Gradio web UI with live transcripts.
+- Optional local memory stores conversations and explicit long-term memories in SQLite, and can inject relevant context into future sessions when enabled.
 
 ## Architecture
 
@@ -141,14 +144,37 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `HF_TOKEN` | Optional token for Hugging Face access (for gated/private assets). |
 | `LOCAL_VISION_MODEL` | Hugging Face model path for local vision processing (only used with `--local-vision` flag, defaults to `HuggingFaceTB/SmolVLM2-2.2B-Instruct`). |
 | `REACHY_MINI_MEMORY_CONTEXT_ENABLED` | Optional. When `true`, each user transcript can refresh model-visible long-term memory context. Defaults to `false` for the fastest realtime response path. |
+| `REACHY_MINI_MEMORY_AUTO_EXTRACT` | Optional. Enables automatic memory extraction when supported by the runtime flow. Defaults to `false`; explicit `manage_memory` tool calls still work when memory is available. |
 | `ARK_REALTIME_APP_ID` / `VOLCENGINE_REALTIME_APP_ID` / `VOLC_APP_ID` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-App-ID`. |
 | `ARK_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_TOKEN` / `VOLC_ACCESS_KEY` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-Access-Key`. |
 | `ARK_REALTIME_APP_KEY` / `VOLCENGINE_REALTIME_APP_KEY` / `VOLC_APP_KEY` | Required for `BACKEND_PROVIDER=ark`. Volcengine Realtime `X-Api-App-Key`. |
 | `ARK_REALTIME_RESOURCE_ID` / `VOLCENGINE_REALTIME_RESOURCE_ID` / `VOLC_RESOURCE_ID` | Optional for `BACKEND_PROVIDER=ark`; defaults to `volc.speech.dialog`. |
 | `ARK_REALTIME_WS_URL` | Optional Volcengine Realtime websocket URL; defaults to `wss://openspeech.bytedance.com/api/v3/realtime/dialogue`. |
+| `ARK_REALTIME_BOT_NAME` | Optional bot display name sent to Volcengine Realtime. Defaults to `Reachy Mini`. |
+| `ARK_REALTIME_INPUT_SAMPLE_RATE` | Optional input audio sample rate for Volcengine Realtime. Defaults to `16000`. |
+| `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | Optional output audio sample rate for Volcengine Realtime. Defaults to `24000`. |
+| `GATEWAY_LLM_BASE_URL` / `PIPELINE_LLM_BASE_URL` | OpenAI-compatible gateway URL used by `BACKEND_PROVIDER=ark` for sidecar function-calling tool routing. |
+| `GATEWAY_LLM_API_KEY` / `PIPELINE_LLM_API_KEY` | Optional API key for the sidecar gateway LLM. |
+| `GATEWAY_LLM_MODEL` / `PIPELINE_LLM_MODEL` | Model name for the sidecar function-calling LLM. If this or the base URL is missing, Ark realtime remains voice-only and local tools are disabled. |
+| `OPENCLAW_GATEWAY_URL` | OpenClaw gateway URL used by the `ask_openclaw` tool. Defaults to `ws://localhost:18789`; the tool is not loaded when this is blank. |
+| `OPENCLAW_TOKEN` | OpenClaw gateway auth token. The `ask_openclaw` tool is not loaded when this is blank. |
+| `OPENCLAW_AGENT_ID` | Optional OpenClaw agent ID. Defaults to `main`. |
+| `OPENCLAW_SESSION_KEY` | Optional OpenClaw session key. Defaults to `main`. |
+| `OPENCLAW_TIMEOUT_SECONDS` | Optional timeout for each `ask_openclaw` request. Defaults to `60`. |
 | `VOLCENGINE_WEB_SEARCH_API_KEY` | Required only for the `web_search` tool. Uses the Volcengine Web Search product APIKey endpoint, not the Ark Responses plugin. |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | Optional Web Search API URL; defaults to `https://open.feedcoopapi.com/search_api/web_search`. |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | Optional timeout for each `web_search` call; defaults to `30`. |
+| `WEATHERAPI_API_KEY` | Optional WeatherAPI.com key. When set, prompt-time base info and the `current_location_weather` tool include live weather. |
+| `SMTP_HOST` / `SMTP_PORT` | Optional SMTP server settings for the `send_email` tool. Defaults are Gmail-oriented (`smtp.gmail.com`, `587`). |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP credentials for `send_email`. Gmail aliases `GMAIL_EMAIL`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, and `EMAIL_APP_PASSWORD` are also accepted. |
+| `SMTP_FROM_EMAIL` / `SMTP_FROM_NAME` | Optional sender address/name overrides for `send_email`. |
+| `SMTP_USE_SSL` / `SMTP_USE_TLS` | Optional SMTP security flags. SSL defaults to `true` on port `465`; TLS defaults to enabled when SSL is not used. |
+| `default_target_email` | Optional default recipient used by `send_email` when the tool call does not provide `target_email`. |
+| `REACHY_MINI_CUSTOM_PROFILE` | Optional startup profile name. Ignored when a saved startup setting or locked profile overrides it. |
+| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | Optional filesystem directory containing external profile folders. |
+| `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | Optional filesystem directory containing external tool modules. |
+| `AUTOLOAD_EXTERNAL_TOOLS` | Optional. When `true`, auto-load every valid external tool module in `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY`. Defaults to `false`. |
+| `REACHY_MINI_SKIP_DOTENV` | Optional. When truthy, skips automatic `.env` discovery/loading and uses the process environment only. |
 
 ### Hugging Face Connection Modes
 
@@ -206,6 +232,84 @@ HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
 ```
 
 When using the headless settings UI, selecting `Hugging Face` lets you choose either the built-in server or a local `host:port` target. The UI writes `HF_REALTIME_CONNECTION_MODE` for you, and the local path writes `HF_REALTIME_WS_URL` with a default of `localhost:8765`.
+
+## Backend recipes
+
+Use these minimal `.env` snippets as starting points. Copy `.env.example` to `.env`, then keep only the lines needed for your chosen backend.
+
+### Hugging Face deployed backend
+
+This is the default path and requires no API key:
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=deployed
+HF_REALTIME_LANGUAGE=zh
+```
+
+### Local Hugging Face realtime gateway
+
+Use this when you want full local control over STT, TTS, language, and the LLM endpoint:
+
+```bash
+cd services/hf_realtime_gateway
+uv sync
+uv run reachy-mini-hf-realtime-gateway --dry-run
+uv run reachy-mini-hf-realtime-gateway
+```
+
+Then point the app at the local realtime websocket:
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
+GATEWAY_LLM_MODEL=your-model-name
+GATEWAY_LLM_API_KEY=
+```
+
+For app-managed startup, set `HF_REALTIME_AUTO_START=true`. The app first looks for `services/hf_realtime_gateway/.venv/bin/reachy-mini-hf-realtime-gateway`, then falls back to `PATH`.
+
+See [services/hf_realtime_gateway/README.md](services/hf_realtime_gateway/README.md) for gateway-specific STT/TTS settings.
+
+### OpenAI Realtime
+
+```env
+BACKEND_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+MODEL_NAME=gpt-realtime
+```
+
+### Gemini Live
+
+```env
+BACKEND_PROVIDER=gemini
+GEMINI_API_KEY=...
+MODEL_NAME=gemini-3.1-flash-live-preview
+```
+
+`GOOGLE_API_KEY` is accepted as an alias for `GEMINI_API_KEY`.
+
+### Volcengine Realtime
+
+```env
+BACKEND_PROVIDER=ark
+ARK_REALTIME_APP_ID=...
+ARK_REALTIME_ACCESS_KEY=...
+ARK_REALTIME_APP_KEY=...
+ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
+```
+
+Volcengine voice transport works with only the realtime credentials. Local LLM tools require an OpenAI-compatible sidecar model:
+
+```env
+GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
+GATEWAY_LLM_MODEL=your-tool-router-model
+GATEWAY_LLM_API_KEY=
+```
+
+If the sidecar base URL or model is missing, the Ark backend remains voice-only and skips local tool routing.
 
 ## Running the app
 
@@ -304,7 +408,63 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | `play_emotion` | Play a recorded emotion clip via Hugging Face datasets. | Core install only. Uses the default open emotions dataset: [`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library). |
 | `stop_emotion` | Clear queued emotions. | Core install only. |
 | `idle_do_nothing` | Explicitly remain idle during an idle turn. Not intended for normal conversation turns. | Core install only. |
+| `task_status` | Inspect currently running or recently completed background tools. | System tool, loaded for every profile. |
+| `task_cancel` | Cancel a running background tool by ID. | System tool, loaded for every profile. |
+| `manage_memory` | Remember, update, forget, or search explicit long-term memories. | System tool, loaded for every profile. Requires local memory store availability. |
+| `current_location_weather` | Fetch the latest approximate current address and weather. | Core install only. Live weather requires `WEATHERAPI_API_KEY`. |
+| `send_email` | Send a user-requested email through the configured SMTP account. | Requires SMTP credentials and either `target_email` in the tool call or `default_target_email`. |
 | `web_search` | Search current web pages, web summaries, or images through the Volcengine Web Search product API. | Requires `VOLCENGINE_WEB_SEARCH_API_KEY`; optional `VOLCENGINE_WEB_SEARCH_API_URL` and `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`. |
+| `ask_openclaw` | Forward complex requests to an OpenClaw agent for external memory, cross-channel context, or tools not available locally. | Requires a running OpenClaw gateway plus non-empty `OPENCLAW_GATEWAY_URL` and `OPENCLAW_TOKEN`; disable by removing it from `tools.txt`. |
+
+Tool availability is profile-gated. A tool listed in `profiles/<profile>/tools.txt` is loaded if the corresponding profile-local file, built-in module, or external tool module exists. System tools (`task_status`, `task_cancel`, `manage_memory`) are added automatically for every profile. `ask_openclaw` is additionally gated by `OPENCLAW_GATEWAY_URL` and `OPENCLAW_TOKEN`.
+
+### Persistent memory
+
+The app creates a local SQLite memory store named `memory.sqlite3`. In a source checkout, the default path is under `src/reachy_mini_conversation_app/storage/`; packaged or instance-specific runs may use the instance storage path.
+
+Memory has two distinct layers:
+- Conversation history: sessions and message snippets can be retained locally for search and future context building.
+- Explicit long-term memory: the assistant can use `manage_memory` to remember, update, forget, or search durable facts, preferences, tasks, and notes.
+
+By default, memory storage is available to tools, but model-visible memory context is kept off for the fastest realtime response path. Enable context injection with:
+
+```env
+REACHY_MINI_MEMORY_CONTEXT_ENABLED=true
+```
+
+Keep `REACHY_MINI_MEMORY_AUTO_EXTRACT=false` unless you intentionally want automatic extraction behavior in runtime paths that support it. For predictable behavior, prefer explicit user requests such as "remember that..." so the assistant uses `manage_memory`.
+
+### OpenClaw bridge
+
+`ask_openclaw` is intended for complex requests that should be delegated to an external OpenClaw agent, for example cross-channel context, larger tool ecosystems, or external long-term memory. It is not exposed unless both values are non-empty:
+
+```env
+OPENCLAW_GATEWAY_URL=ws://localhost:18789
+OPENCLAW_TOKEN=your-openclaw-token
+OPENCLAW_AGENT_ID=main
+OPENCLAW_SESSION_KEY=main
+OPENCLAW_TIMEOUT_SECONDS=60
+```
+
+To disable it for a profile even when configured, remove or comment `ask_openclaw` in that profile's `tools.txt`.
+
+### Email sending
+
+`send_email` only sends when the user explicitly asks for an email. Configure SMTP before enabling it in a profile:
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your.sender@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM_EMAIL=your.sender@gmail.com
+SMTP_FROM_NAME=Reachy Mini
+SMTP_USE_SSL=false
+SMTP_USE_TLS=true
+default_target_email=recipient@example.com
+```
+
+For Gmail, use an app password instead of the account login password.
 
 ## Advanced features
 
@@ -419,6 +579,20 @@ This supports both:
 </details>
 
 <details>
+<summary><b>Prompt snippets and base information</b></summary>
+
+Profile instructions can include reusable snippets with bracket syntax:
+
+```text
+[passion_for_lobster_jokes]
+[identities/witty_identity]
+```
+
+Snippets resolve from `src/reachy_mini_conversation_app/prompts/`. The app also builds base information such as current time, approximate location, and optional WeatherAPI data. `current_location_weather` uses the same base-info path, so prompt-time context and on-demand tool results stay aligned.
+
+</details>
+
+<details>
 <summary><b>Multiple robots on the same subnet</b></summary>
 
 If you run multiple Reachy Mini daemons on the same network, use:
@@ -430,6 +604,95 @@ reachy-mini-conversation-app --robot-name <name>
 `<name>` must match the daemon's `--robot-name` value so the app connects to the correct robot.
 
 </details>
+
+## Troubleshooting
+
+### Reachy Mini daemon connection failures
+
+If startup fails with `TimeoutError` or `ConnectionError`, start the daemon first and make sure the app is targeting the right robot:
+
+```bash
+reachy-mini-daemon
+reachy-mini-conversation-app --debug
+```
+
+For multiple daemons on one subnet, pass the daemon name:
+
+```bash
+reachy-mini-conversation-app --robot-name <name>
+```
+
+On macOS simulation, prefer:
+
+```bash
+mjpython -m reachy_mini.daemon.app.main --sim
+```
+
+If port `8000` is already in use, stop the existing daemon or pick the daemon setup you intend to test.
+
+### Hugging Face local gateway does not start
+
+Check the service environment directly:
+
+```bash
+cd services/hf_realtime_gateway
+uv run reachy-mini-hf-realtime-gateway --dry-run
+uv run reachy-mini-hf-realtime-gateway --healthcheck
+```
+
+Common causes:
+- `GATEWAY_LLM_BASE_URL` or `GATEWAY_LLM_MODEL` is missing.
+- The service-local `.venv` was not created with `uv sync`.
+- First model download or warmup takes longer than `HF_REALTIME_AUTO_START_TIMEOUT_SECONDS`.
+- A root-level `HF_HOME` points at an unexpected cache. Keep gateway model/cache settings in the gateway environment when debugging.
+
+### Chinese speech recognition is inaccurate
+
+The deployed Hugging Face server may ignore local `HF_REALTIME_LANGUAGE` if its server-side STT is configured differently. For reliable Chinese recognition, use the local gateway and set gateway STT/language settings, for example `GATEWAY_STT=faster-whisper` and `GATEWAY_LANGUAGE=zh`.
+
+### Local vision fails or is slow
+
+`--local-vision` loads PyTorch/Transformers and is not suitable for running directly on Reachy Mini Wireless / Raspberry Pi. Run the daemon on the robot and run this app from a laptop or workstation. If imports crash or GPU memory is insufficient, run without `--local-vision` so camera analysis uses the selected realtime backend.
+
+### Head tracking startup timeout
+
+YOLO head tracking loads the detector in a subprocess. On cold machines, increase startup wait:
+
+```bash
+REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation-app --gradio
+```
+
+Use `--head-tracker none` to keep camera capture while disabling head tracking, or `--no-camera` to disable both camera capture and head tracking.
+
+### Profile or tool does not load
+
+Confirm the selected profile and tool allowlist:
+
+```bash
+ls profiles/<profile>
+sed -n '1,120p' profiles/<profile>/tools.txt
+```
+
+For shared tools, adding `src/reachy_mini_conversation_app/tools/<tool>.py` is not enough: the tool also needs to be listed in the active profile's `tools.txt`, unless it is a system tool or loaded through `AUTOLOAD_EXTERNAL_TOOLS=1`.
+
+### Development checks
+
+Install the dev dependency group, then run the main checks:
+
+```bash
+uv sync --group dev
+uv run ruff check .
+uv run mypy
+uv run pytest
+```
+
+Use narrower tests while iterating:
+
+```bash
+uv run pytest tests/test_config_name_collisions.py tests/test_external_loading.py
+uv run pytest tests/test_memory.py
+uv run pytest tests/tools
+```
 
 ## Contributing
 

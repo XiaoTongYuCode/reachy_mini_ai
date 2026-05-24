@@ -9,3 +9,4 @@ move_head
 send_email
 web_search
 current_location_weather
+ask_openclaw

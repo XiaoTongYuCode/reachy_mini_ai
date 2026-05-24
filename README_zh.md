@@ -23,9 +23,11 @@ tags:
 - [架构](#架构)
 - [安装](#安装)
 - [配置](#配置)
+- [后端配置示例](#后端配置示例)
 - [运行应用](#运行应用)
 - [暴露给助手的 LLM 工具](#暴露给助手的-llm-工具)
 - [高级功能](#高级功能)
+- [排障](#排障)
 - [参与贡献](#参与贡献)
 - [许可证](#许可证)
 
@@ -38,6 +40,7 @@ tags:
 - 视觉处理默认使用你选择的实时后端（调用相机工具时）；也可通过 `--local-vision` 启用基于 SmolVLM2 的本地视觉（CPU/GPU/MPS）。
 - 分层动作系统会队列化主动作（舞蹈、情绪、goto 姿态、呼吸），并叠加说话响应式晃动与头部跟踪。
 - 异步工具调度通过带实时转写的 Gradio Web UI 集成机器人动作、相机采集和可选的头部跟踪能力。
+- 可选本地记忆会把对话和显式长期记忆存入 SQLite，并可在启用后向后续会话注入相关上下文。
 
 ## 架构
 
@@ -141,14 +144,37 @@ pip install -e .[dev]                   # 开发工具
 | `HF_TOKEN` | 可选的 Hugging Face 访问令牌（用于受限/私有资产）。 |
 | `LOCAL_VISION_MODEL` | 本地视觉处理的 Hugging Face 模型路径（仅 `--local-vision` 使用，默认 `HuggingFaceTB/SmolVLM2-2.2B-Instruct`）。 |
 | `REACHY_MINI_MEMORY_CONTEXT_ENABLED` | 可选。设为 `true` 时，每次用户转录后会刷新模型可见的长期记忆上下文。默认 `false`，以保证实时首答最快。 |
+| `REACHY_MINI_MEMORY_AUTO_EXTRACT` | 可选。在运行流支持时启用自动记忆提取。默认 `false`；即使保持关闭，显式 `manage_memory` 工具调用仍可使用。 |
 | `ARK_REALTIME_APP_ID` / `VOLCENGINE_REALTIME_APP_ID` / `VOLC_APP_ID` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-App-ID`。 |
 | `ARK_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_KEY` / `VOLCENGINE_REALTIME_ACCESS_TOKEN` / `VOLC_ACCESS_KEY` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-Access-Key`。 |
 | `ARK_REALTIME_APP_KEY` / `VOLCENGINE_REALTIME_APP_KEY` / `VOLC_APP_KEY` | `BACKEND_PROVIDER=ark` 时必需。火山引擎 Realtime 的 `X-Api-App-Key`。 |
 | `ARK_REALTIME_RESOURCE_ID` / `VOLCENGINE_REALTIME_RESOURCE_ID` / `VOLC_RESOURCE_ID` | `BACKEND_PROVIDER=ark` 时可选，默认 `volc.speech.dialog`。 |
 | `ARK_REALTIME_WS_URL` | 可选火山引擎 Realtime websocket URL，默认 `wss://openspeech.bytedance.com/api/v3/realtime/dialogue`。 |
+| `ARK_REALTIME_BOT_NAME` | 可选。发送给火山引擎 Realtime 的机器人展示名，默认 `Reachy Mini`。 |
+| `ARK_REALTIME_INPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输入音频采样率，默认 `16000`。 |
+| `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输出音频采样率，默认 `24000`。 |
+| `GATEWAY_LLM_BASE_URL` / `PIPELINE_LLM_BASE_URL` | `BACKEND_PROVIDER=ark` 的本地 function-calling 工具路由模型地址，兼容 OpenAI Chat Completions。 |
+| `GATEWAY_LLM_API_KEY` / `PIPELINE_LLM_API_KEY` | 本地工具路由 LLM 的可选 API Key。 |
+| `GATEWAY_LLM_MODEL` / `PIPELINE_LLM_MODEL` | 本地 function-calling 工具路由模型名。缺少模型名或 base URL 时，Ark realtime 仍可语音对话，但不会触发本地 tools。 |
+| `OPENCLAW_GATEWAY_URL` | `ask_openclaw` 工具使用的 OpenClaw gateway URL，默认 `ws://localhost:18789`；为空时不加载该工具。 |
+| `OPENCLAW_TOKEN` | OpenClaw gateway 认证 token；为空时不加载 `ask_openclaw`。 |
+| `OPENCLAW_AGENT_ID` | 可选 OpenClaw agent ID，默认 `main`。 |
+| `OPENCLAW_SESSION_KEY` | 可选 OpenClaw 会话 key，默认 `main`。 |
+| `OPENCLAW_TIMEOUT_SECONDS` | `ask_openclaw` 单次请求超时时间，默认 `60` 秒。 |
 | `VOLCENGINE_WEB_SEARCH_API_KEY` | 仅 `web_search` 工具需要。使用火山引擎联网搜索产品的 APIKey 接入地址，不使用 Ark Responses 插件。 |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | 可选联网搜索 API URL，默认 `https://open.feedcoopapi.com/search_api/web_search`。 |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | `web_search` 单次调用超时时间，默认 `30` 秒。 |
+| `WEATHERAPI_API_KEY` | 可选 WeatherAPI.com Key。设置后，提示词基础信息和 `current_location_weather` 工具会包含实时天气。 |
+| `SMTP_HOST` / `SMTP_PORT` | `send_email` 工具的 SMTP 服务配置。默认偏向 Gmail：`smtp.gmail.com`、`587`。 |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | `send_email` 的 SMTP 凭据。也支持 Gmail 别名：`GMAIL_EMAIL`、`GMAIL_ADDRESS`、`GMAIL_APP_PASSWORD`、`EMAIL_APP_PASSWORD`。 |
+| `SMTP_FROM_EMAIL` / `SMTP_FROM_NAME` | `send_email` 的可选发件地址/发件名覆盖。 |
+| `SMTP_USE_SSL` / `SMTP_USE_TLS` | 可选 SMTP 安全开关。端口 `465` 默认启用 SSL；未使用 SSL 时默认启用 TLS。 |
+| `default_target_email` | 可选默认收件人；当 `send_email` 工具调用未提供 `target_email` 时使用。 |
+| `REACHY_MINI_CUSTOM_PROFILE` | 可选启动 profile 名。若存在已保存启动设置或锁定 profile，可能会被覆盖。 |
+| `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | 可选外部 profile 根目录。 |
+| `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | 可选外部 tool 模块目录。 |
+| `AUTOLOAD_EXTERNAL_TOOLS` | 可选。设为 `true` 时自动加载 `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` 下所有合法外部 tool 模块。默认 `false`。 |
+| `REACHY_MINI_SKIP_DOTENV` | 可选。为真时跳过自动发现/加载 `.env`，只使用进程环境变量。 |
 
 ### Hugging Face 连接模式
 
@@ -206,6 +232,84 @@ HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
 ```
 
 当使用无头设置 UI 时，选择 `Hugging Face` 可在内置服务器和本地 `host:port` 目标之间切换。UI 会自动写入 `HF_REALTIME_CONNECTION_MODE`，本地路径会写入 `HF_REALTIME_WS_URL`（默认 `localhost:8765`）。
+
+## 后端配置示例
+
+下面是常用 `.env` 最小配置片段。建议先复制 `.env.example` 为 `.env`，再只保留当前后端需要的字段。
+
+### Hugging Face 内置后端
+
+这是默认路径，不需要 API Key：
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=deployed
+HF_REALTIME_LANGUAGE=zh
+```
+
+### 本地 Hugging Face 实时网关
+
+当你希望完全控制 STT、TTS、语言和 LLM 端点时使用本地 gateway：
+
+```bash
+cd services/hf_realtime_gateway
+uv sync
+uv run reachy-mini-hf-realtime-gateway --dry-run
+uv run reachy-mini-hf-realtime-gateway
+```
+
+然后让应用连接本地 realtime websocket：
+
+```env
+BACKEND_PROVIDER=huggingface
+HF_REALTIME_CONNECTION_MODE=local
+HF_REALTIME_WS_URL=ws://127.0.0.1:8765/v1/realtime
+GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
+GATEWAY_LLM_MODEL=your-model-name
+GATEWAY_LLM_API_KEY=
+```
+
+如果希望应用自动拉起 gateway，设置 `HF_REALTIME_AUTO_START=true`。应用会优先查找 `services/hf_realtime_gateway/.venv/bin/reachy-mini-hf-realtime-gateway`，找不到时再使用 `PATH` 中的命令。
+
+更多 gateway 侧 STT/TTS 配置见 [services/hf_realtime_gateway/README.md](services/hf_realtime_gateway/README.md)。
+
+### OpenAI Realtime
+
+```env
+BACKEND_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+MODEL_NAME=gpt-realtime
+```
+
+### Gemini Live
+
+```env
+BACKEND_PROVIDER=gemini
+GEMINI_API_KEY=...
+MODEL_NAME=gemini-3.1-flash-live-preview
+```
+
+`GOOGLE_API_KEY` 也可作为 `GEMINI_API_KEY` 的别名。
+
+### 火山引擎 Realtime
+
+```env
+BACKEND_PROVIDER=ark
+ARK_REALTIME_APP_ID=...
+ARK_REALTIME_ACCESS_KEY=...
+ARK_REALTIME_APP_KEY=...
+ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
+```
+
+仅配置 realtime 凭据即可进行火山引擎语音对话。本地工具调用需要额外配置一个兼容 OpenAI 的 sidecar 模型：
+
+```env
+GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
+GATEWAY_LLM_MODEL=your-tool-router-model
+GATEWAY_LLM_API_KEY=
+```
+
+如果缺少 sidecar base URL 或模型名，Ark 后端会保持语音对话能力，但跳过本地工具路由。
 
 ## 运行应用
 
@@ -304,7 +408,63 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | `play_emotion` | 通过 Hugging Face 数据集播放录制的情绪片段。 | 仅核心安装。默认使用开放情绪数据集：[`pollen-robotics/reachy-mini-emotions-library`](https://huggingface.co/datasets/pollen-robotics/reachy-mini-emotions-library)。 |
 | `stop_emotion` | 清空已队列的情绪。 | 仅核心安装。 |
 | `idle_do_nothing` | 在空闲轮次显式保持空闲。不用于正常对话轮次。 | 仅核心安装。 |
+| `task_status` | 查看正在运行或最近完成的后台工具。 | 系统工具，所有 profile 都会加载。 |
+| `task_cancel` | 通过工具 ID 取消正在运行的后台工具。 | 系统工具，所有 profile 都会加载。 |
+| `manage_memory` | 记住、更新、忘记或搜索显式长期记忆。 | 系统工具，所有 profile 都会加载。需要本地 memory store 可用。 |
+| `current_location_weather` | 获取最新近似当前位置和天气。 | 仅核心安装。实时天气需要 `WEATHERAPI_API_KEY`。 |
+| `send_email` | 通过已配置的 SMTP 账户发送用户明确要求发送的邮件。 | 需要 SMTP 凭据，并且工具调用提供 `target_email` 或配置 `default_target_email`。 |
 | `web_search` | 通过火山引擎联网搜索产品 API 搜索网页、网页总结或图片。 | 需要 `VOLCENGINE_WEB_SEARCH_API_KEY`；可选 `VOLCENGINE_WEB_SEARCH_API_URL` 和 `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`。 |
+| `ask_openclaw` | 把复杂请求转发给 OpenClaw agent，用于 OpenClaw 长期记忆、跨渠道上下文或本地没有的外部工具。 | 需要运行中的 OpenClaw gateway，且 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_TOKEN` 都非空；从 `tools.txt` 移除即可禁用。 |
+
+工具是否可用受 profile 控制。写在 `profiles/<profile>/tools.txt` 中的工具，只有在对应 profile 本地文件、内置模块或外部工具模块存在时才会加载。系统工具（`task_status`、`task_cancel`、`manage_memory`）会自动加入每个 profile。`ask_openclaw` 还会额外检查 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_TOKEN`。
+
+### 持久化记忆
+
+应用会创建名为 `memory.sqlite3` 的本地 SQLite memory store。在源码检出目录中，默认路径位于 `src/reachy_mini_conversation_app/storage/`；打包或实例化运行时可能使用对应 instance storage 路径。
+
+记忆分为两层：
+- 对话历史：本地保留 session 和消息片段，用于搜索和后续上下文构建。
+- 显式长期记忆：助手可通过 `manage_memory` 记住、更新、忘记或搜索长期事实、偏好、任务和备注。
+
+默认情况下，memory store 可供工具使用，但为了保证实时首答速度，模型可见的记忆上下文默认关闭。启用上下文注入：
+
+```env
+REACHY_MINI_MEMORY_CONTEXT_ENABLED=true
+```
+
+除非你明确需要运行流自动抽取记忆，否则建议保持 `REACHY_MINI_MEMORY_AUTO_EXTRACT=false`。更可控的方式是让用户明确说“记住……”，由助手调用 `manage_memory`。
+
+### OpenClaw 桥接
+
+`ask_openclaw` 用于把复杂请求委托给外部 OpenClaw agent，例如跨渠道上下文、更大的工具生态或外部长期记忆。只有以下两个值都非空时才会暴露：
+
+```env
+OPENCLAW_GATEWAY_URL=ws://localhost:18789
+OPENCLAW_TOKEN=your-openclaw-token
+OPENCLAW_AGENT_ID=main
+OPENCLAW_SESSION_KEY=main
+OPENCLAW_TIMEOUT_SECONDS=60
+```
+
+即使已经配置，如果某个 profile 不希望启用它，也可以在该 profile 的 `tools.txt` 中删除或注释 `ask_openclaw`。
+
+### 邮件发送
+
+`send_email` 只应在用户明确要求发送邮件时使用。启用前先配置 SMTP：
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your.sender@gmail.com
+SMTP_PASSWORD=your-app-password
+SMTP_FROM_EMAIL=your.sender@gmail.com
+SMTP_FROM_NAME=Reachy Mini
+SMTP_USE_SSL=false
+SMTP_USE_TLS=true
+default_target_email=recipient@example.com
+```
+
+如果使用 Gmail，请使用应用专用密码，不要使用账号登录密码。
 
 ## 高级功能
 
@@ -419,6 +579,20 @@ REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY=./external_content/external_tools
 </details>
 
 <details>
+<summary><b>提示词片段与基础信息</b></summary>
+
+Profile 指令可以用方括号语法复用共享提示片段：
+
+```text
+[passion_for_lobster_jokes]
+[identities/witty_identity]
+```
+
+片段会从 `src/reachy_mini_conversation_app/prompts/` 解析。应用还会构建当前时间、近似位置、可选 WeatherAPI 天气等基础信息。`current_location_weather` 使用同一套基础信息路径，因此提示词中的上下文和按需工具结果保持一致。
+
+</details>
+
+<details>
 <summary><b>同一子网的多机器人</b></summary>
 
 如果你在同一网络里运行多个 Reachy Mini daemon，可使用：
@@ -430,6 +604,95 @@ reachy-mini-conversation-app --robot-name <name>
 `<name>` 必须与 daemon 的 `--robot-name` 值一致，应用才会连接到正确机器人。
 
 </details>
+
+## 排障
+
+### Reachy Mini daemon 连接失败
+
+如果启动时报 `TimeoutError` 或 `ConnectionError`，先确认 daemon 已启动，并确认应用连接的是目标机器人：
+
+```bash
+reachy-mini-daemon
+reachy-mini-conversation-app --debug
+```
+
+同一子网存在多个 daemon 时，传入 daemon 名称：
+
+```bash
+reachy-mini-conversation-app --robot-name <name>
+```
+
+macOS 仿真优先使用：
+
+```bash
+mjpython -m reachy_mini.daemon.app.main --sim
+```
+
+如果端口 `8000` 已被占用，请停止已有 daemon，或确认你当前要测试的是哪一个 daemon 配置。
+
+### Hugging Face 本地 gateway 无法启动
+
+先直接检查 service 环境：
+
+```bash
+cd services/hf_realtime_gateway
+uv run reachy-mini-hf-realtime-gateway --dry-run
+uv run reachy-mini-hf-realtime-gateway --healthcheck
+```
+
+常见原因：
+- 缺少 `GATEWAY_LLM_BASE_URL` 或 `GATEWAY_LLM_MODEL`。
+- 没有在 service 目录执行 `uv sync` 创建本地 `.venv`。
+- 首次模型下载或预热时间超过 `HF_REALTIME_AUTO_START_TIMEOUT_SECONDS`。
+- 根目录 `HF_HOME` 指向了非预期缓存。调试 gateway 时，优先把模型/cache 配置放在 gateway 运行环境中确认。
+
+### 中文语音识别不稳定
+
+内置 Hugging Face 云端服务可能会忽略本地 `HF_REALTIME_LANGUAGE`，因为实际 STT 由服务端启动参数决定。如果需要稳定中文识别，请改用本地 gateway，并设置 gateway 侧 STT/语言配置，例如 `GATEWAY_STT=faster-whisper` 和 `GATEWAY_LANGUAGE=zh`。
+
+### 本地视觉失败或速度过慢
+
+`--local-vision` 会加载 PyTorch/Transformers，不适合直接在 Reachy Mini Wireless / Raspberry Pi 上运行。建议让 daemon 在机器人上运行，而把本应用放在笔记本或工作站上运行。如果导入崩溃或 GPU 显存不足，请去掉 `--local-vision`，让相机分析走当前选择的 realtime 后端。
+
+### 头部跟踪启动超时
+
+YOLO 头部跟踪会在子进程中加载检测器。冷启动较慢时可以调大等待时间：
+
+```bash
+REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation-app --gradio
+```
+
+使用 `--head-tracker none` 可保留相机采集但关闭头部跟踪；使用 `--no-camera` 会同时关闭相机采集和头部跟踪。
+
+### Profile 或工具未加载
+
+先确认当前 profile 和工具 allowlist：
+
+```bash
+ls profiles/<profile>
+sed -n '1,120p' profiles/<profile>/tools.txt
+```
+
+对于共享工具，仅新增 `src/reachy_mini_conversation_app/tools/<tool>.py` 不够：还需要把工具名写进当前 profile 的 `tools.txt`，除非它是系统工具，或通过 `AUTOLOAD_EXTERNAL_TOOLS=1` 加载。
+
+### 开发检查
+
+安装 dev 依赖分组后运行主要检查：
+
+```bash
+uv sync --group dev
+uv run ruff check .
+uv run mypy
+uv run pytest
+```
+
+迭代时可先跑更窄的测试：
+
+```bash
+uv run pytest tests/test_config_name_collisions.py tests/test_external_loading.py
+uv run pytest tests/test_memory.py
+uv run pytest tests/tools
+```
 
 ## 参与贡献
 

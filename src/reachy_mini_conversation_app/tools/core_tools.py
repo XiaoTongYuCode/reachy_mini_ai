@@ -137,6 +137,23 @@ def _format_error(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"
 
 
+def _openclaw_is_configured() -> bool:
+    """Return whether the OpenClaw bridge has enough config to be exposed."""
+    return bool((config.OPENCLAW_GATEWAY_URL or "").strip() and (config.OPENCLAW_TOKEN or "").strip())
+
+
+def _tool_is_configured_for_loading(tool_name: str) -> bool:
+    """Return whether an optional tool should be loaded for the current config."""
+    if tool_name == "ask_openclaw":
+        return _openclaw_is_configured()
+    return True
+
+
+def _tool_is_configured_for_registration(tool: "Tool") -> bool:
+    """Return whether an instantiated tool should be registered."""
+    return _tool_is_configured_for_loading(tool.name)
+
+
 # Registry & specs (dynamic)
 def _load_profile_tools() -> None:
     """Load tools based on profile's tools.txt file."""
@@ -213,6 +230,10 @@ def _load_profile_tools() -> None:
             )
 
     for tool_name in tool_names:
+        if not _tool_is_configured_for_loading(tool_name):
+            logger.info("Skipping optional tool '%s' because required configuration is missing", tool_name)
+            continue
+
         loaded = False
         profile_error = None
         profile_tool_file = config.PROFILES_DIRECTORY / profile / f"{tool_name}.py"
@@ -266,7 +287,8 @@ def _initialize_tools() -> None:
 
     _load_profile_tools()
 
-    ALL_TOOLS = {cls.name: cls() for cls in get_concrete_subclasses(Tool)}  # type: ignore[type-abstract]
+    loaded_tools = {cls.name: cls() for cls in get_concrete_subclasses(Tool)}  # type: ignore[type-abstract]
+    ALL_TOOLS = {name: tool for name, tool in loaded_tools.items() if _tool_is_configured_for_registration(tool)}
     ALL_TOOL_SPECS = [tool.spec() for tool in ALL_TOOLS.values()]
 
     for tool_name, tool in ALL_TOOLS.items():
