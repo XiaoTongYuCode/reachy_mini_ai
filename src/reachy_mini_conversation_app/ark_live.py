@@ -6,7 +6,6 @@ isolated while matching the app's existing ConversationHandler contract.
 """
 
 from __future__ import annotations
-import re
 import json
 import uuid
 import struct
@@ -27,23 +26,15 @@ from reachy_mini_conversation_app.config import (
 )
 from reachy_mini_conversation_app.prompts import get_session_voice, get_session_instructions
 from reachy_mini_conversation_app.storage.memory import MemoryContextProvider
-from reachy_mini_conversation_app.tools.core_tools import ToolDependencies, get_active_tool_specs
+from reachy_mini_conversation_app.tools.core_tools import ToolDependencies
 from reachy_mini_conversation_app.agent_observability import AgentMessageListLog
 from reachy_mini_conversation_app.conversation_handler import ConversationHandler
-from reachy_mini_conversation_app.tools.background_tool_manager import (
-    ToolCallRoutine,
-    ToolNotification,
-    BackgroundToolManager,
-)
 
 
 logger = logging.getLogger(__name__)
 
 ARK_INPUT_SAMPLE_RATE: Final[int] = 16000
 ARK_OUTPUT_SAMPLE_RATE: Final[int] = 24000
-_ARK_TOOL_ROUTER_TIMEOUT_SECONDS: Final[float] = 20.0
-_ARK_SIDECAR_HISTORY_MESSAGES: Final[int] = 8
-_ARK_SUPPRESSED_TURN_DRAIN_DELAY_SECONDS: Final[float] = 1.0
 
 _MESSAGE_TYPE_FULL_CLIENT_REQUEST = 0x1
 _MESSAGE_TYPE_AUDIO_ONLY_REQUEST = 0x2
@@ -60,7 +51,6 @@ _EVENT_FINISH_CONNECTION = 2
 _EVENT_START_SESSION = 100
 _EVENT_FINISH_SESSION = 102
 _EVENT_TASK_REQUEST = 200
-_EVENT_CHAT_RAG_TEXT = 502
 _EVENT_CONNECTION_STARTED = 50
 _EVENT_CONNECTION_FAILED = 51
 _EVENT_CONNECTION_FINISHED = 52
@@ -128,90 +118,6 @@ def _build_audio_payload(session_id: str, audio_data: bytes) -> bytes:
     frame.extend(struct.pack(">I", len(audio_data)))
     frame.extend(audio_data)
     return bytes(frame)
-
-
-def _openai_tool_specs_to_chat_tools(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert app tool specs to Chat Completions tool definitions."""
-    tools: list[dict[str, Any]] = []
-    for spec in specs:
-        name = spec.get("name")
-        if spec.get("type") != "function" or not isinstance(name, str):
-            continue
-        function: dict[str, Any] = {
-            "name": name,
-            "parameters": spec.get("parameters") or {"type": "object", "properties": {}},
-        }
-        description = spec.get("description")
-        if isinstance(description, str):
-            function["description"] = description
-        tools.append({"type": "function", "function": function})
-    return tools
-
-
-def _sanitize_tool_result_for_model(tool_name: str, tool_result: dict[str, Any]) -> dict[str, Any]:
-    """Remove large or binary fields before sending tool output through text model context."""
-    del tool_name
-    dropped_image = False
-    large_field_names = {
-        "b64_im",
-        "image_base64",
-        "base64_image",
-        "image_b64",
-        "audio_base64",
-        "video_base64",
-    }
-
-    def _sanitize(value: Any) -> Any:
-        nonlocal dropped_image
-        if isinstance(value, dict):
-            sanitized_dict: dict[str, Any] = {}
-            for key, item in value.items():
-                key_str = str(key)
-                key_lower = key_str.lower()
-                if key_lower in large_field_names or ("base64" in key_lower and isinstance(item, str)):
-                    dropped_image = dropped_image or "image" in key_lower or key_lower == "b64_im"
-                    continue
-                sanitized_value = _sanitize(item)
-                if sanitized_value is not None:
-                    sanitized_dict[key_str] = sanitized_value
-            return sanitized_dict
-        if isinstance(value, list):
-            return [_sanitize(item) for item in value]
-        if isinstance(value, (bytes, bytearray)):
-            return None
-        if isinstance(value, str) and len(value) > 4000:
-            return f"{value[:4000]}... [truncated]"
-        return value
-
-    sanitized = _sanitize(tool_result)
-    if not isinstance(sanitized, dict):
-        sanitized = {"result": sanitized}
-    if dropped_image:
-        sanitized["image_attached"] = True
-    return sanitized
-
-
-def _is_email_intent(text: str) -> bool:
-    normalized = text.lower()
-    has_email_word = any(token in normalized for token in ("邮件", "email", "e-mail", "mail"))
-    has_send_word = any(token in normalized for token in ("发", "发送", "send"))
-    return has_email_word and has_send_word
-
-
-def _is_cancel_intent(text: str) -> bool:
-    normalized = text.lower()
-    return any(token in normalized for token in ("取消", "算了", "不用", "别发", "不要发", "cancel", "never mind"))
-
-
-def _build_email_args_from_followup(text: str) -> dict[str, str]:
-    email_match = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", text)
-    target_email = email_match.group(0) if email_match else ""
-    body = text.replace(target_email, "").strip(" ，,。.") if target_email else text.strip()
-    subject = "测试邮件" if "测试" in body else "Reachy Mini 邮件"
-    args = {"subject": subject, "body": body or text.strip()}
-    if target_email:
-        args["target_email"] = target_email
-    return args
 
 
 def _parse_realtime_frame(data: bytes) -> ArkRealtimeFrame:
@@ -308,12 +214,6 @@ class ArkLiveHandler(ConversationHandler):
         self._pending_assistant_chunks: list[str] = []
         self._last_partial_transcript = ""
         self._last_user_transcript = ""
-        self._suppress_realtime_response = False
-        self._sidecar_history: list[dict[str, str]] = []
-        self._pending_tool_request: dict[str, Any] | None = None
-        self._queued_tool_rag_results: list[tuple[str, dict[str, Any]]] = []
-        self._queued_tool_drain_task: asyncio.Task[None] | None = None
-        self.tool_manager = BackgroundToolManager()
         self.memory_context_provider = MemoryContextProvider(getattr(deps, "memory_store", None))
         self._memory_session_id: str | None = None
         self._memory_tasks: set[asyncio.Task[None]] = set()
@@ -398,14 +298,6 @@ class ArkLiveHandler(ConversationHandler):
             except Exception:
                 pass
         await self._drain_memory_tasks()
-        if self._queued_tool_drain_task is not None:
-            self._queued_tool_drain_task.cancel()
-            try:
-                await self._queued_tool_drain_task
-            except asyncio.CancelledError:
-                pass
-            self._queued_tool_drain_task = None
-        await self.tool_manager.shutdown()
         await self._end_memory_session()
 
     def _headers(self) -> dict[str, str]:
@@ -488,18 +380,14 @@ class ArkLiveHandler(ConversationHandler):
                 )
                 self._connected_event.set()
                 logger.info("Volcengine realtime session started with voice=%r", self.get_current_voice())
-                self.tool_manager.start_up(tool_callbacks=[self._handle_tool_result])
 
-                try:
-                    async for message in websocket:
-                        if self._stop_event.is_set():
-                            break
-                        if isinstance(message, str):
-                            logger.debug("Ignoring unexpected Volcengine text websocket message: %s", message)
-                            continue
-                        await self._handle_frame(_parse_realtime_frame(message))
-                finally:
-                    await self.tool_manager.shutdown()
+                async for message in websocket:
+                    if self._stop_event.is_set():
+                        break
+                    if isinstance(message, str):
+                        logger.debug("Ignoring unexpected Volcengine text websocket message: %s", message)
+                        continue
+                    await self._handle_frame(_parse_realtime_frame(message))
         except Exception as exc:
             if "HTTP 401" in str(exc) or "status_code=401" in str(exc):
                 raise ArkRealtimeAuthenticationError(
@@ -535,16 +423,9 @@ class ArkLiveHandler(ConversationHandler):
             await self._handle_asr_response(payload)
             return
         if event == _EVENT_CHAT_RESPONSE:
-            if self._suppress_realtime_response:
-                return
             await self._handle_chat_response(payload)
             return
         if event == _EVENT_CHAT_ENDED:
-            if self._suppress_realtime_response:
-                self._suppress_realtime_response = False
-                self._pending_assistant_chunks.clear()
-                await self._drain_queued_tool_rag_results()
-                return
             await self._flush_assistant_chunks()
             return
         if event == _EVENT_TTS_ENDED:
@@ -555,8 +436,6 @@ class ArkLiveHandler(ConversationHandler):
             logger.debug("Ignoring non-audio Volcengine TTSResponse payload: %s", payload)
             return
         if event == _EVENT_TTS_RESPONSE or frame["message_type"] == _MESSAGE_TYPE_AUDIO_ONLY_RESPONSE:
-            if self._suppress_realtime_response:
-                return
             await self._handle_audio_payload(frame.get("raw_payload", b""))
             return
         if event == _EVENT_ASR_ENDED:
@@ -592,8 +471,6 @@ class ArkLiveHandler(ConversationHandler):
         self._agent_message_log.append("user", text)
         self._agent_message_log.log_once_for_turn("Volcengine model response")
         await self.output_queue.put(AdditionalOutputs({"role": "user", "content": text}))
-        await self._maybe_start_tool_calls(text)
-        self._append_sidecar_history("user", text)
 
     async def _handle_chat_response(self, payload: Any) -> None:
         if not isinstance(payload, dict):
@@ -612,7 +489,6 @@ class ArkLiveHandler(ConversationHandler):
         self._schedule_memory_message("assistant", content)
         self._agent_message_log.append("assistant", content)
         self._agent_message_log.reset_turn_log()
-        self._append_sidecar_history("assistant", content)
         await self.output_queue.put(AdditionalOutputs({"role": "assistant", "content": content}))
 
     async def _handle_audio_payload(self, payload: Any) -> None:
@@ -626,235 +502,6 @@ class ArkLiveHandler(ConversationHandler):
         if self.gradio_mode and self.deps.head_wobbler is not None:
             self.deps.head_wobbler.feed_pcm(decoded_pcm, self.output_sample_rate)
         await self.output_queue.put((self.output_sample_rate, decoded_pcm))
-
-    async def _maybe_start_tool_calls(self, transcript: str) -> bool:
-        """Use a sidecar OpenAI-compatible LLM to route Ark turns to local tools."""
-        tool_specs = get_active_tool_specs(self.deps)
-        chat_tools = _openai_tool_specs_to_chat_tools(tool_specs)
-        if not chat_tools:
-            return False
-        if await self._maybe_start_pending_tool(transcript):
-            return True
-
-        base_url = (getattr(config, "PIPELINE_LLM_BASE_URL", None) or "").strip()
-        model = (getattr(config, "PIPELINE_LLM_MODEL", None) or "").strip()
-        api_key = (getattr(config, "PIPELINE_LLM_API_KEY", None) or "").strip()
-        if not base_url or not model:
-            logger.debug("Skipping Volcengine sidecar tools: PIPELINE_LLM_BASE_URL or PIPELINE_LLM_MODEL is missing.")
-            self._maybe_set_pending_tool_request(transcript, chat_tools)
-            return False
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a function-calling router for a small robot. "
-                    "Call tools only when the user explicitly asks for robot actions, camera use, "
-                    "web/current information, memory updates, email, or task control. "
-                    "Use the recent conversation to resolve short follow-up utterances. "
-                    "For email, call send_email only when subject and body can be inferred; "
-                    "otherwise do not call a tool."
-                ),
-            },
-            *self._sidecar_history[-_ARK_SIDECAR_HISTORY_MESSAGES:],
-            {"role": "user", "content": transcript},
-        ]
-        try:
-            from openai import AsyncOpenAI
-
-            client = AsyncOpenAI(api_key=api_key or "DUMMY", base_url=base_url)
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    tools=chat_tools,
-                    tool_choice="auto",
-                    temperature=0,
-                ),
-                timeout=_ARK_TOOL_ROUTER_TIMEOUT_SECONDS,
-            )
-        except asyncio.TimeoutError:
-            logger.info("Volcengine sidecar tool routing timed out; falling back to realtime model.")
-            self._maybe_set_pending_tool_request(transcript, chat_tools)
-            return False
-        except Exception:
-            logger.debug("Volcengine sidecar tool routing failed; falling back to realtime model.", exc_info=True)
-            self._maybe_set_pending_tool_request(transcript, chat_tools)
-            return False
-
-        choices = getattr(response, "choices", None) or []
-        if not choices:
-            self._maybe_set_pending_tool_request(transcript, chat_tools)
-            return False
-        message = getattr(choices[0], "message", None)
-        tool_calls = list(getattr(message, "tool_calls", None) or [])
-        if not tool_calls:
-            logger.info("Volcengine sidecar selected no tool for transcript=%r", transcript)
-            self._maybe_set_pending_tool_request(transcript, chat_tools)
-            return False
-
-        started_any = False
-        logger.info(
-            "Volcengine sidecar selected tool(s): %s",
-            [getattr(getattr(call, "function", None), "name", None) for call in tool_calls],
-        )
-        for call in tool_calls:
-            function = getattr(call, "function", None)
-            tool_name = getattr(function, "name", None)
-            args_json_str = getattr(function, "arguments", None) or "{}"
-            call_id = str(getattr(call, "id", None) or uuid.uuid4())
-            if not isinstance(tool_name, str) or not tool_name:
-                continue
-            bg_tool = await self._start_local_tool(call_id=call_id, tool_name=tool_name, args_json_str=args_json_str)
-            started_any = True
-            await self.output_queue.put(
-                AdditionalOutputs(
-                    {
-                        "role": "assistant",
-                        "content": f"Used tool {tool_name} with args {args_json_str}. Tool ID: {bg_tool.tool_id}",
-                    }
-                )
-            )
-
-        self._suppress_realtime_response = started_any
-        if started_any:
-            self._pending_tool_request = None
-        return started_any
-
-    async def _maybe_start_pending_tool(self, transcript: str) -> bool:
-        if not self._pending_tool_request:
-            return False
-        if self._pending_tool_request.get("tool_name") != "send_email":
-            return False
-        if _is_cancel_intent(transcript):
-            logger.info("Cleared pending send_email request after user cancellation.")
-            self._pending_tool_request = None
-            return False
-
-        args = _build_email_args_from_followup(transcript)
-        bg_tool = await self._start_local_tool(
-            call_id=str(uuid.uuid4()),
-            tool_name="send_email",
-            args_json_str=json.dumps(args, ensure_ascii=False),
-        )
-        self._pending_tool_request = None
-        self._suppress_realtime_response = True
-        logger.info("Started pending send_email tool from follow-up transcript.")
-        await self.output_queue.put(
-            AdditionalOutputs(
-                {
-                    "role": "assistant",
-                    "content": f"Used tool send_email with args {json.dumps(args, ensure_ascii=False)}. Tool ID: {bg_tool.tool_id}",
-                }
-            )
-        )
-        return True
-
-    def _maybe_set_pending_tool_request(self, transcript: str, chat_tools: list[dict[str, Any]]) -> None:
-        available_tool_names = {
-            tool.get("function", {}).get("name")
-            for tool in chat_tools
-            if isinstance(tool.get("function"), dict)
-        }
-        if "send_email" not in available_tool_names:
-            return
-        if _is_email_intent(transcript):
-            self._pending_tool_request = {"tool_name": "send_email"}
-            logger.info("Set pending send_email request; waiting for email content.")
-
-    async def _start_local_tool(self, *, call_id: str, tool_name: str, args_json_str: str) -> Any:
-        return await self.tool_manager.start_tool(
-            call_id=call_id,
-            tool_call_routine=ToolCallRoutine(
-                tool_name=tool_name,
-                args_json_str=args_json_str,
-                deps=self.deps,
-            ),
-            is_idle_tool_call=False,
-        )
-
-    def _append_sidecar_history(self, role: str, content: str) -> None:
-        self._sidecar_history.append({"role": role, "content": content})
-        if len(self._sidecar_history) > _ARK_SIDECAR_HISTORY_MESSAGES:
-            self._sidecar_history = self._sidecar_history[-_ARK_SIDECAR_HISTORY_MESSAGES:]
-
-    async def _handle_tool_result(self, bg_tool: ToolNotification) -> None:
-        """Send completed local tool output back through Volcengine ChatRAGText."""
-        if bg_tool.error is not None:
-            tool_result: dict[str, Any] = {"error": bg_tool.error}
-        else:
-            tool_result = bg_tool.result or {"status": "ok"}
-        sanitized_result = _sanitize_tool_result_for_model(bg_tool.tool_name, tool_result)
-        self._agent_message_log.append("tool", sanitized_result, call_id=bg_tool.id, name=bg_tool.tool_name)
-        await self.output_queue.put(
-            AdditionalOutputs(
-                {
-                    "role": "assistant",
-                    "content": json.dumps(sanitized_result, ensure_ascii=False),
-                    "metadata": {
-                        "title": f"Used tool {bg_tool.tool_name}",
-                        "status": "done",
-                    },
-                }
-            )
-        )
-        await self._send_or_queue_tool_result_to_realtime(bg_tool.tool_name, sanitized_result)
-
-    async def _send_or_queue_tool_result_to_realtime(self, tool_name: str, tool_result: dict[str, Any]) -> None:
-        if self._suppress_realtime_response:
-            self._queued_tool_rag_results.append((tool_name, tool_result))
-            logger.info("Queued Volcengine ChatRAGText tool result until suppressed realtime turn ends.")
-            self._schedule_queued_tool_drain()
-            return
-        await self._send_tool_result_to_realtime(tool_name, tool_result)
-
-    async def _drain_queued_tool_rag_results(self) -> None:
-        self._suppress_realtime_response = False
-        current_task = asyncio.current_task()
-        if self._queued_tool_drain_task is not None and self._queued_tool_drain_task is not current_task:
-            self._queued_tool_drain_task.cancel()
-            self._queued_tool_drain_task = None
-        elif self._queued_tool_drain_task is current_task:
-            self._queued_tool_drain_task = None
-        while self._queued_tool_rag_results:
-            tool_name, tool_result = self._queued_tool_rag_results.pop(0)
-            await self._send_tool_result_to_realtime(tool_name, tool_result)
-
-    def _schedule_queued_tool_drain(self) -> None:
-        if self._queued_tool_drain_task is not None and not self._queued_tool_drain_task.done():
-            return
-
-        async def _delayed_drain() -> None:
-            try:
-                await asyncio.sleep(_ARK_SUPPRESSED_TURN_DRAIN_DELAY_SECONDS)
-                if self._queued_tool_rag_results:
-                    logger.info("Draining queued Volcengine ChatRAGText tool result after suppressed turn timeout.")
-                    await self._drain_queued_tool_rag_results()
-            except asyncio.CancelledError:
-                raise
-
-        self._queued_tool_drain_task = asyncio.create_task(_delayed_drain(), name="ark-tool-rag-drain")
-
-    async def _send_tool_result_to_realtime(self, tool_name: str, tool_result: dict[str, Any]) -> None:
-        """Ask Volcengine Realtime to summarize a local tool result in speech."""
-        if self._connection is None:
-            return
-        external_rag = (
-            "Local robot tool execution result. "
-            "Answer the user in one short Chinese sentence, and do not claim the tool is unavailable.\n"
-            f"tool_name={tool_name}\n"
-            f"tool_result={json.dumps(tool_result, ensure_ascii=False)}"
-        )
-        try:
-            await self._connection.send(
-                _build_full_client_payload(
-                    _EVENT_CHAT_RAG_TEXT,
-                    session_id=self._session_id,
-                    payload={"external_rag": external_rag},
-                )
-            )
-        except Exception:
-            logger.debug("Failed to send Volcengine ChatRAGText tool result.", exc_info=True)
 
     async def receive(self, frame: tuple[int, NDArray[np.int16]]) -> None:
         """Receive microphone audio and send it as a Volcengine TaskRequest."""

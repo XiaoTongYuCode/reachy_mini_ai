@@ -153,9 +153,6 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `ARK_REALTIME_BOT_NAME` | Optional bot display name sent to Volcengine Realtime. Defaults to `Reachy Mini`. |
 | `ARK_REALTIME_INPUT_SAMPLE_RATE` | Optional input audio sample rate for Volcengine Realtime. Defaults to `16000`. |
 | `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | Optional output audio sample rate for Volcengine Realtime. Defaults to `24000`. |
-| `GATEWAY_LLM_BASE_URL` / `PIPELINE_LLM_BASE_URL` | OpenAI-compatible gateway URL used by `BACKEND_PROVIDER=ark` for sidecar function-calling tool routing. |
-| `GATEWAY_LLM_API_KEY` / `PIPELINE_LLM_API_KEY` | Optional API key for the sidecar gateway LLM. |
-| `GATEWAY_LLM_MODEL` / `PIPELINE_LLM_MODEL` | Model name for the sidecar function-calling LLM. If this or the base URL is missing, Ark realtime remains voice-only and local tools are disabled. |
 | `OPENCLAW_GATEWAY_URL` | OpenClaw gateway URL used by the `ask_openclaw` tool. Defaults to `ws://localhost:18789`; the tool is not loaded when this is blank. |
 | `OPENCLAW_TOKEN` | OpenClaw gateway auth token. The `ask_openclaw` tool is not loaded when this is blank. |
 | `OPENCLAW_AGENT_ID` | Optional OpenClaw agent ID. Defaults to `main`. |
@@ -301,15 +298,7 @@ ARK_REALTIME_APP_KEY=...
 ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
 ```
 
-Volcengine voice transport works with only the realtime credentials. Local LLM tools require an OpenAI-compatible sidecar model:
-
-```env
-GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
-GATEWAY_LLM_MODEL=your-tool-router-model
-GATEWAY_LLM_API_KEY=
-```
-
-If the sidecar base URL or model is missing, the Ark backend remains voice-only and skips local tool routing.
+The Ark path now talks directly to the Volcengine realtime websocket for recognition and replies. It no longer calls an OpenAI-compatible sidecar / OpenRouter model to decide local tool routing first.
 
 ## Running the app
 

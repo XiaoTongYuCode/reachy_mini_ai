@@ -153,9 +153,6 @@ pip install -e .[dev]                   # 开发工具
 | `ARK_REALTIME_BOT_NAME` | 可选。发送给火山引擎 Realtime 的机器人展示名，默认 `Reachy Mini`。 |
 | `ARK_REALTIME_INPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输入音频采样率，默认 `16000`。 |
 | `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输出音频采样率，默认 `24000`。 |
-| `GATEWAY_LLM_BASE_URL` / `PIPELINE_LLM_BASE_URL` | `BACKEND_PROVIDER=ark` 的本地 function-calling 工具路由模型地址，兼容 OpenAI Chat Completions。 |
-| `GATEWAY_LLM_API_KEY` / `PIPELINE_LLM_API_KEY` | 本地工具路由 LLM 的可选 API Key。 |
-| `GATEWAY_LLM_MODEL` / `PIPELINE_LLM_MODEL` | 本地 function-calling 工具路由模型名。缺少模型名或 base URL 时，Ark realtime 仍可语音对话，但不会触发本地 tools。 |
 | `OPENCLAW_GATEWAY_URL` | `ask_openclaw` 工具使用的 OpenClaw gateway URL，默认 `ws://localhost:18789`；为空时不加载该工具。 |
 | `OPENCLAW_TOKEN` | OpenClaw gateway 认证 token；为空时不加载 `ask_openclaw`。 |
 | `OPENCLAW_AGENT_ID` | 可选 OpenClaw agent ID，默认 `main`。 |
@@ -301,15 +298,7 @@ ARK_REALTIME_APP_KEY=...
 ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
 ```
 
-仅配置 realtime 凭据即可进行火山引擎语音对话。本地工具调用需要额外配置一个兼容 OpenAI 的 sidecar 模型：
-
-```env
-GATEWAY_LLM_BASE_URL=http://127.0.0.1:8000/v1
-GATEWAY_LLM_MODEL=your-tool-router-model
-GATEWAY_LLM_API_KEY=
-```
-
-如果缺少 sidecar base URL 或模型名，Ark 后端会保持语音对话能力，但跳过本地工具路由。
+Ark 路径现在直接使用火山引擎 realtime websocket 完成识别与回复，不再额外调用兼容 OpenAI 的 sidecar / OpenRouter 模型做本地 tool routing。
 
 ## 运行应用
 

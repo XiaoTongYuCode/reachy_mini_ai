@@ -422,9 +422,6 @@ class Config:
     ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
     ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
     ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
-    PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
-    PIPELINE_LLM_API_KEY = os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY")
-    PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL")
     OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "ws://localhost:18789")
     OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN")
     OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main")
@@ -563,9 +560,6 @@ def refresh_runtime_config_from_env() -> None:
     config.ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
     config.ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
     config.ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
-    config.PIPELINE_LLM_BASE_URL = os.getenv("PIPELINE_LLM_BASE_URL") or os.getenv("GATEWAY_LLM_BASE_URL")
-    config.PIPELINE_LLM_API_KEY = os.getenv("PIPELINE_LLM_API_KEY") or os.getenv("GATEWAY_LLM_API_KEY")
-    config.PIPELINE_LLM_MODEL = os.getenv("PIPELINE_LLM_MODEL") or os.getenv("GATEWAY_LLM_MODEL")
     config.OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "ws://localhost:18789")
     config.OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN")
     config.OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main")
