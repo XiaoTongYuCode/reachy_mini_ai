@@ -57,7 +57,7 @@
           <span id="backend-chip" class="chip">Required</span>
         </div>
         <p id="backend-note" class="muted backend-note">
-          OpenAI Realtime needs your own <code>OPENAI_API_KEY</code>. Gemini Live needs your own <code>GEMINI_API_KEY</code>. Hugging Face uses either the built-in server or a direct realtime websocket endpoint.
+          OpenAI Realtime needs your own <code>OPENAI_API_KEY</code>. Gemini Live needs your own <code>GEMINI_API_KEY</code>. Aliyun DashScope needs your own <code>DASHSCOPE_API_KEY</code>. Hugging Face uses either the built-in server or a direct realtime websocket endpoint.
         </p>
         <p class="muted backend-note">
           Backend changes are saved here, then applied after you restart Reachy Mini Conversation from the dashboard or desktop app.
@@ -89,6 +89,13 @@
             <span class="backend-choice-body">
               <span class="backend-choice-title">Volcengine Realtime</span>
               <span class="backend-choice-copy">Use the official Doubao realtime speech websocket with local X-Api credentials.</span>
+            </span>
+          </label>
+          <label class="backend-choice" data-backend-card="aliyun">
+            <input type="radio" name="backend" value="aliyun" />
+            <span class="backend-choice-body">
+              <span class="backend-choice-title">Aliyun DashScope</span>
+              <span class="backend-choice-copy">Use Qwen3.5 Omni realtime with direct provider-side tool calls.</span>
             </span>
           </label>
         </div>

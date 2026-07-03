@@ -37,6 +37,7 @@ Conversational app for the Reachy Mini robot combining realtime voice backends, 
   - **OpenAI Realtime** (`gpt-realtime`) - requires `OPENAI_API_KEY`.
   - **Gemini Live** (`gemini-3.1-flash-live-preview`) - requires `GEMINI_API_KEY`.
   - **Volcengine Realtime** - requires Volcengine Speech `X-Api-*` credentials.
+  - **Aliyun DashScope Realtime** (`qwen3.5-omni-flash-realtime`) - requires `DASHSCOPE_API_KEY` and supports provider-side function calling.
 - Vision processing uses the selected realtime backend by default (when the camera tool is used), with optional on-device local vision using SmolVLM2 (CPU/GPU/MPS) via `--local-vision`.
 - Layered motion system queues primary moves (dances, emotions, goto poses, breathing) while blending speech-reactive wobble and head-tracking.
 - Async tool dispatch integrates robot motion, camera capture, and optional head-tracking capabilities through a Gradio web UI with live transcripts.
@@ -133,7 +134,7 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 |----------|-------------|
 | `OPENAI_API_KEY` | Required for OpenAI Realtime mode. |
 | `GEMINI_API_KEY` | Required for Gemini mode. Also accepts `GOOGLE_API_KEY`. Get one at [aistudio.google.com](https://aistudio.google.com/apikey). |
-| `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, `gemini`, or `ark`. |
+| `BACKEND_PROVIDER` | Realtime backend to use: `huggingface` (default), `openai`, `gemini`, `ark`, or `aliyun`. |
 | `MODEL_NAME` | Optional model override for OpenAI Realtime or Gemini Live. Defaults to `gpt-realtime` for OpenAI and `gemini-3.1-flash-live-preview` for Gemini. Hugging Face uses the server's model selection. |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face connection selector: `deployed` uses the built-in Hugging Face server; `local` uses `HF_REALTIME_WS_URL`. Defaults to `deployed`. |
 | `HF_REALTIME_LANGUAGE` | Speech recognition language hint for Hugging Face Realtime. Defaults to `zh` for Chinese; set to `auto` to let the backend detect the language. The built-in deployed server may ignore this if its server-side STT is not configured for the requested language; for reliable Chinese recognition, use the local gateway with `GATEWAY_STT=faster-whisper` and `GATEWAY_LANGUAGE=zh`. |
@@ -153,20 +154,27 @@ Copy `.env.example` to `.env` when you want to switch backends, provide API keys
 | `ARK_REALTIME_BOT_NAME` | Optional bot display name sent to Volcengine Realtime. Defaults to `Reachy Mini`. |
 | `ARK_REALTIME_INPUT_SAMPLE_RATE` | Optional input audio sample rate for Volcengine Realtime. Defaults to `16000`. |
 | `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | Optional output audio sample rate for Volcengine Realtime. Defaults to `24000`. |
+| `DASHSCOPE_API_KEY` / `ALIYUN_API_KEY` | Required for `BACKEND_PROVIDER=aliyun`. DashScope API key used for Qwen realtime. |
+| `ALIYUN_REALTIME_MODEL` | Optional Aliyun DashScope model override. Defaults to `qwen3.5-omni-flash-realtime`. Kept separate from `MODEL_NAME` to avoid cross-provider model collisions. |
+| `ALIYUN_REALTIME_WS_URL` | Optional Aliyun DashScope realtime websocket URL; defaults to the Qwen3.5 Omni realtime endpoint shown in the Bailian console. |
+| `ALIYUN_REALTIME_INPUT_SAMPLE_RATE` | Optional input audio sample rate for Aliyun DashScope realtime. Defaults to `16000`. |
+| `ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE` | Optional output audio sample rate for Aliyun DashScope realtime. Defaults to `24000`. |
+| `ALIYUN_REALTIME_VIDEO_FPS` | Optional camera frame rate for Aliyun native `input_image_buffer.append` vision input after speech is detected. Defaults to `1`; set to `0` to disable automatic speech-window visual frames. |
+| `ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS` | Optional duration, in seconds, to keep automatic Aliyun visual frames active after speech is detected. Defaults to `10`. |
 | `OPENCLAW_GATEWAY_URL` | OpenClaw gateway URL used by the `ask_openclaw` tool. Defaults to `ws://localhost:18789`; the tool is not loaded when this is blank. |
 | `OPENCLAW_TOKEN` | OpenClaw gateway auth token. The `ask_openclaw` tool is not loaded when this is blank. |
 | `OPENCLAW_AGENT_ID` | Optional OpenClaw agent ID. Defaults to `main`. |
 | `OPENCLAW_SESSION_KEY` | Optional OpenClaw session key. Defaults to `main`. |
 | `OPENCLAW_TIMEOUT_SECONDS` | Optional timeout for each `ask_openclaw` request. Defaults to `60`. |
-| `VOLCENGINE_WEB_SEARCH_API_KEY` | Required only for the `web_search` tool. Uses the Volcengine Web Search product APIKey endpoint, not the Ark Responses plugin. |
+| `VOLCENGINE_WEB_SEARCH_API_KEY` | Required only for the backend-independent `web_search` tool. Uses the Volcengine Web Search product APIKey endpoint, not the Ark Responses plugin. |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | Optional Web Search API URL; defaults to `https://open.feedcoopapi.com/search_api/web_search`. |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | Optional timeout for each `web_search` call; defaults to `30`. |
-| `WEATHERAPI_API_KEY` | Optional WeatherAPI.com key. When set, prompt-time base info and the `current_location_weather` tool include live weather. |
-| `SMTP_HOST` / `SMTP_PORT` | Optional SMTP server settings for the `send_email` tool. Defaults are Gmail-oriented (`smtp.gmail.com`, `587`). |
+| `WEATHERAPI_API_KEY` | Optional backend-independent WeatherAPI.com key. When set, prompt-time base info and the `current_location_weather` tool include live weather. |
+| `SMTP_HOST` / `SMTP_PORT` | Optional backend-independent SMTP server settings for the `send_email` tool. Defaults are Gmail-oriented (`smtp.gmail.com`, `587`). |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | SMTP credentials for `send_email`. Gmail aliases `GMAIL_EMAIL`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, and `EMAIL_APP_PASSWORD` are also accepted. |
 | `SMTP_FROM_EMAIL` / `SMTP_FROM_NAME` | Optional sender address/name overrides for `send_email`. |
 | `SMTP_USE_SSL` / `SMTP_USE_TLS` | Optional SMTP security flags. SSL defaults to `true` on port `465`; TLS defaults to enabled when SSL is not used. |
-| `default_target_email` | Optional default recipient used by `send_email` when the tool call does not provide `target_email`. |
+| `default_target_email` | Optional backend-independent default recipient used by `send_email` when the tool call does not provide `target_email`. |
 | `REACHY_MINI_CUSTOM_PROFILE` | Optional startup profile name. Ignored when a saved startup setting or locked profile overrides it. |
 | `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | Optional filesystem directory containing external profile folders. |
 | `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | Optional filesystem directory containing external tool modules. |
@@ -300,6 +308,18 @@ ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
 
 The Ark path now talks directly to the Volcengine realtime websocket for recognition and replies. It no longer calls an OpenAI-compatible sidecar / OpenRouter model to decide local tool routing first.
 
+### Aliyun DashScope Realtime
+
+```env
+BACKEND_PROVIDER=aliyun
+DASHSCOPE_API_KEY=...
+ALIYUN_REALTIME_MODEL=qwen3.5-omni-flash-realtime
+```
+
+The Aliyun path uses Qwen3.5 Omni's realtime websocket with provider-side function calling. Tools enabled by the active profile are sent in the session config, so tool calls are executed by the existing local `BackgroundToolManager` path.
+
+When a camera is available, the native Aliyun websocket path sends JPEG frames through `input_image_buffer.append` at `ALIYUN_REALTIME_VIDEO_FPS` frames per second only for a short window after speech is detected. The default is `1` FPS for `10` seconds. The `camera` tool can also start an asynchronous 1 FPS image sequence with `duration_seconds` when the model needs more visual context; sequence requests return immediately and continue sending frames in the background for up to `120` seconds. The returned `tool_id` can be inspected with `task_status` and cancelled with `task_cancel` or `cancel_aliyun_camera_sequence`.
+
 ## Running the app
 
 Activate your virtual environment, then launch:
@@ -390,7 +410,7 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | Tool | Action | Dependencies |
 |------|--------|--------------|
 | `move_head` | Queue a head pose change (left/right/up/down/front). | Core install only. |
-| `camera` | Capture the latest camera frame and analyze it with the selected realtime backend or the local vision model. | Requires camera worker. Uses local vision when `--local-vision` is enabled. |
+| `camera` | Capture the latest camera frame and analyze it with the selected realtime backend or the local vision model. With Aliyun, `duration_seconds` can start an async 1 FPS sequence for up to 120 seconds. | Requires camera worker. Uses local vision when `--local-vision` is enabled. |
 | `head_tracking` | Enable or disable head-tracking offsets (not identity recognition - only detects and tracks head position). | Camera worker with configured head tracker (`--head-tracker`). |
 | `dance` | Queue a dance from `reachy_mini_dances_library`. | Core install only. |
 | `stop_dance` | Clear queued dances. | Core install only. |
@@ -399,13 +419,14 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | `idle_do_nothing` | Explicitly remain idle during an idle turn. Not intended for normal conversation turns. | Core install only. |
 | `task_status` | Inspect currently running or recently completed background tools. | System tool, loaded for every profile. |
 | `task_cancel` | Cancel a running background tool by ID. | System tool, loaded for every profile. |
+| `cancel_aliyun_camera_sequence` | Cancel the latest or specified Aliyun async camera sequence. | System tool, loaded for every profile; only cancels Aliyun camera sequence jobs. |
 | `manage_memory` | Remember, update, forget, or search explicit long-term memories. | System tool, loaded for every profile. Requires local memory store availability. |
 | `current_location_weather` | Fetch the latest approximate current address and weather. | Core install only. Live weather requires `WEATHERAPI_API_KEY`. |
 | `send_email` | Send a user-requested email through the configured SMTP account. | Requires SMTP credentials and either `target_email` in the tool call or `default_target_email`. |
 | `web_search` | Search current web pages, web summaries, or images through the Volcengine Web Search product API. | Requires `VOLCENGINE_WEB_SEARCH_API_KEY`; optional `VOLCENGINE_WEB_SEARCH_API_URL` and `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`. |
 | `ask_openclaw` | Forward complex requests to an OpenClaw agent for external memory, cross-channel context, or tools not available locally. | Requires a running OpenClaw gateway plus non-empty `OPENCLAW_GATEWAY_URL` and `OPENCLAW_TOKEN`; disable by removing it from `tools.txt`. |
 
-Tool availability is profile-gated. A tool listed in `profiles/<profile>/tools.txt` is loaded if the corresponding profile-local file, built-in module, or external tool module exists. System tools (`task_status`, `task_cancel`, `manage_memory`) are added automatically for every profile. `ask_openclaw` is additionally gated by `OPENCLAW_GATEWAY_URL` and `OPENCLAW_TOKEN`.
+Tool availability is profile-gated. A tool listed in `profiles/<profile>/tools.txt` is loaded if the corresponding profile-local file, built-in module, or external tool module exists. System tools (`task_status`, `task_cancel`, `cancel_aliyun_camera_sequence`, `manage_memory`) are added automatically for every profile. `web_search`, `current_location_weather`, and `send_email` are normal backend-independent tools; their API keys and default recipient settings do not depend on `BACKEND_PROVIDER`. `ask_openclaw` is additionally gated by `OPENCLAW_GATEWAY_URL` and `OPENCLAW_TOKEN`.
 
 ### Persistent memory
 

@@ -49,6 +49,7 @@ def run(
     from reachy_mini_conversation_app.config import (
         HF_BACKEND,
         ARK_BACKEND,
+        ALIYUN_BACKEND,
         GEMINI_BACKEND,
         OPENAI_BACKEND,
         HF_LOCAL_CONNECTION_MODE,
@@ -221,6 +222,19 @@ def run(
             get_backend_label(config.BACKEND_PROVIDER),
         )
         handler = ArkLiveHandler(
+            deps,
+            gradio_mode=args.gradio,
+            instance_path=instance_path,
+            startup_voice=startup_settings.voice,
+        )  # type: ignore[assignment]
+    elif config.BACKEND_PROVIDER == ALIYUN_BACKEND:
+        from reachy_mini_conversation_app.aliyun_realtime import AliyunRealtimeHandler
+
+        logger.info(
+            "Using %s via Aliyun DashScope realtime handler",
+            get_backend_label(config.BACKEND_PROVIDER),
+        )
+        handler = AliyunRealtimeHandler(
             deps,
             gradio_mode=args.gradio,
             instance_path=instance_path,

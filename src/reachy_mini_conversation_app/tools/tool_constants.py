@@ -15,4 +15,5 @@ class SystemTool(Enum):
 
     TASK_STATUS = "task_status"
     TASK_CANCEL = "task_cancel"
+    CANCEL_ALIYUN_CAMERA_SEQUENCE = "cancel_aliyun_camera_sequence"
     MANAGE_MEMORY = "manage_memory"

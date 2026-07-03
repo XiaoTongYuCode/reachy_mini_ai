@@ -37,6 +37,7 @@ tags:
   - **OpenAI Realtime**（`gpt-realtime`）：需要 `OPENAI_API_KEY`。
   - **Gemini Live**（`gemini-3.1-flash-live-preview`）：需要 `GEMINI_API_KEY`。
   - **Volcengine Realtime**：需要火山引擎语音服务的 `X-Api-*` 凭据。
+  - **Aliyun DashScope Realtime**（`qwen3.5-omni-flash-realtime`）：需要 `DASHSCOPE_API_KEY`，支持模型侧 function calling。
 - 视觉处理默认使用你选择的实时后端（调用相机工具时）；也可通过 `--local-vision` 启用基于 SmolVLM2 的本地视觉（CPU/GPU/MPS）。
 - 分层动作系统会队列化主动作（舞蹈、情绪、goto 姿态、呼吸），并叠加说话响应式晃动与头部跟踪。
 - 异步工具调度通过带实时转写的 Gradio Web UI 集成机器人动作、相机采集和可选的头部跟踪能力。
@@ -133,7 +134,7 @@ pip install -e .[dev]                   # 开发工具
 |----------|-------------|
 | `OPENAI_API_KEY` | OpenAI Realtime 模式必需。 |
 | `GEMINI_API_KEY` | Gemini 模式必需。也支持 `GOOGLE_API_KEY`。可在 [aistudio.google.com](https://aistudio.google.com/apikey) 获取。 |
-| `BACKEND_PROVIDER` | 要使用的实时后端：`huggingface`（默认）、`openai`、`gemini` 或 `ark`。 |
+| `BACKEND_PROVIDER` | 要使用的实时后端：`huggingface`（默认）、`openai`、`gemini`、`ark` 或 `aliyun`。 |
 | `MODEL_NAME` | OpenAI Realtime 或 Gemini Live 的可选模型覆盖。OpenAI 默认 `gpt-realtime`，Gemini 默认 `gemini-3.1-flash-live-preview`。Hugging Face 使用服务器侧模型选择。 |
 | `HF_REALTIME_CONNECTION_MODE` | Hugging Face 连接模式：`deployed` 使用内置 Hugging Face 服务器；`local` 使用 `HF_REALTIME_WS_URL`。默认 `deployed`。 |
 | `HF_REALTIME_LANGUAGE` | Hugging Face Realtime 的语音识别语言提示。默认 `zh`，适合中文；如需后端自动检测，可设为 `auto`。内置云端服务可能会忽略该值，因为实际 STT 由服务端启动参数决定；如果需要稳定中文识别，请使用本地网关，并在仓库根目录 `.env` 中配置 `GATEWAY_STT=faster-whisper` 和 `GATEWAY_LANGUAGE=zh`。 |
@@ -153,20 +154,27 @@ pip install -e .[dev]                   # 开发工具
 | `ARK_REALTIME_BOT_NAME` | 可选。发送给火山引擎 Realtime 的机器人展示名，默认 `Reachy Mini`。 |
 | `ARK_REALTIME_INPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输入音频采样率，默认 `16000`。 |
 | `ARK_REALTIME_OUTPUT_SAMPLE_RATE` | 可选。火山引擎 Realtime 输出音频采样率，默认 `24000`。 |
+| `DASHSCOPE_API_KEY` / `ALIYUN_API_KEY` | `BACKEND_PROVIDER=aliyun` 时必需。用于 Qwen realtime 的 DashScope API Key。 |
+| `ALIYUN_REALTIME_MODEL` | 可选。阿里云百炼 / DashScope 模型覆盖，默认 `qwen3.5-omni-flash-realtime`。独立于 `MODEL_NAME`，避免跨供应商模型名污染。 |
+| `ALIYUN_REALTIME_WS_URL` | 可选阿里云百炼 / DashScope realtime websocket URL，默认使用百炼控制台展示的 Qwen3.5 Omni realtime 端点。 |
+| `ALIYUN_REALTIME_INPUT_SAMPLE_RATE` | 可选。阿里云 DashScope realtime 输入音频采样率，默认 `16000`。 |
+| `ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE` | 可选。阿里云 DashScope realtime 输出音频采样率，默认 `24000`。 |
+| `ALIYUN_REALTIME_VIDEO_FPS` | 可选。检测到语音后，阿里云原生 `input_image_buffer.append` 视觉输入的摄像头抽帧帧率。默认 `1`；设为 `0` 可关闭自动语音窗口视觉帧。 |
+| `ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS` | 可选。检测到语音后自动视觉帧保持活跃的秒数，默认 `10`。 |
 | `OPENCLAW_GATEWAY_URL` | `ask_openclaw` 工具使用的 OpenClaw gateway URL，默认 `ws://localhost:18789`；为空时不加载该工具。 |
 | `OPENCLAW_TOKEN` | OpenClaw gateway 认证 token；为空时不加载 `ask_openclaw`。 |
 | `OPENCLAW_AGENT_ID` | 可选 OpenClaw agent ID，默认 `main`。 |
 | `OPENCLAW_SESSION_KEY` | 可选 OpenClaw 会话 key，默认 `main`。 |
 | `OPENCLAW_TIMEOUT_SECONDS` | `ask_openclaw` 单次请求超时时间，默认 `60` 秒。 |
-| `VOLCENGINE_WEB_SEARCH_API_KEY` | 仅 `web_search` 工具需要。使用火山引擎联网搜索产品的 APIKey 接入地址，不使用 Ark Responses 插件。 |
+| `VOLCENGINE_WEB_SEARCH_API_KEY` | 仅 backend 无关的 `web_search` 工具需要。使用火山引擎联网搜索产品的 APIKey 接入地址，不使用 Ark Responses 插件。 |
 | `VOLCENGINE_WEB_SEARCH_API_URL` | 可选联网搜索 API URL，默认 `https://open.feedcoopapi.com/search_api/web_search`。 |
 | `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS` | `web_search` 单次调用超时时间，默认 `30` 秒。 |
-| `WEATHERAPI_API_KEY` | 可选 WeatherAPI.com Key。设置后，提示词基础信息和 `current_location_weather` 工具会包含实时天气。 |
-| `SMTP_HOST` / `SMTP_PORT` | `send_email` 工具的 SMTP 服务配置。默认偏向 Gmail：`smtp.gmail.com`、`587`。 |
+| `WEATHERAPI_API_KEY` | 可选 backend 无关 WeatherAPI.com Key。设置后，提示词基础信息和 `current_location_weather` 工具会包含实时天气。 |
+| `SMTP_HOST` / `SMTP_PORT` | backend 无关的 `send_email` 工具 SMTP 服务配置。默认偏向 Gmail：`smtp.gmail.com`、`587`。 |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | `send_email` 的 SMTP 凭据。也支持 Gmail 别名：`GMAIL_EMAIL`、`GMAIL_ADDRESS`、`GMAIL_APP_PASSWORD`、`EMAIL_APP_PASSWORD`。 |
 | `SMTP_FROM_EMAIL` / `SMTP_FROM_NAME` | `send_email` 的可选发件地址/发件名覆盖。 |
 | `SMTP_USE_SSL` / `SMTP_USE_TLS` | 可选 SMTP 安全开关。端口 `465` 默认启用 SSL；未使用 SSL 时默认启用 TLS。 |
-| `default_target_email` | 可选默认收件人；当 `send_email` 工具调用未提供 `target_email` 时使用。 |
+| `default_target_email` | 可选 backend 无关默认收件人；当 `send_email` 工具调用未提供 `target_email` 时使用。 |
 | `REACHY_MINI_CUSTOM_PROFILE` | 可选启动 profile 名。若存在已保存启动设置或锁定 profile，可能会被覆盖。 |
 | `REACHY_MINI_EXTERNAL_PROFILES_DIRECTORY` | 可选外部 profile 根目录。 |
 | `REACHY_MINI_EXTERNAL_TOOLS_DIRECTORY` | 可选外部 tool 模块目录。 |
@@ -300,6 +308,18 @@ ARK_REALTIME_RESOURCE_ID=volc.speech.dialog
 
 Ark 路径现在直接使用火山引擎 realtime websocket 完成识别与回复，不再额外调用兼容 OpenAI 的 sidecar / OpenRouter 模型做本地 tool routing。
 
+### 阿里云百炼 / DashScope Realtime
+
+```env
+BACKEND_PROVIDER=aliyun
+DASHSCOPE_API_KEY=...
+ALIYUN_REALTIME_MODEL=qwen3.5-omni-flash-realtime
+```
+
+阿里云路径使用 Qwen3.5 Omni 的 realtime websocket 与模型侧 function calling。当前 profile 启用的 tools 会随 session config 发送给模型，模型触发的 tool call 直接复用现有本地 `BackgroundToolManager` 执行路径。
+
+当摄像头可用时，阿里云原生 websocket 路径只会在检测到语音后的短窗口内，按 `ALIYUN_REALTIME_VIDEO_FPS` 将 JPEG 帧通过 `input_image_buffer.append` 发送给模型。默认是 `1` FPS，持续 `10` 秒。模型也可以通过 `camera` 工具的 `duration_seconds` 启动异步 1 FPS 连续图像序列；工具会立即返回，并在后台继续发送最多 `120` 秒的帧。返回的 `tool_id` 可用 `task_status` 查看，并可通过 `task_cancel` 或 `cancel_aliyun_camera_sequence` 取消。
+
 ## 运行应用
 
 激活你的虚拟环境后，启动：
@@ -390,7 +410,7 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | 工具 | 动作 | 依赖 |
 |------|--------|--------------|
 | `move_head` | 队列一个头部姿态变更（left/right/up/down/front）。 | 仅核心安装。 |
-| `camera` | 抓取最新相机帧，并通过所选实时后端或本地视觉模型进行分析。 | 需要 camera worker。启用 `--local-vision` 时使用本地视觉。 |
+| `camera` | 抓取最新相机帧，并通过所选实时后端或本地视觉模型进行分析。Aliyun 下可用 `duration_seconds` 启动最多 120 秒的异步 1 FPS 序列。 | 需要 camera worker。启用 `--local-vision` 时使用本地视觉。 |
 | `head_tracking` | 启用或禁用头部跟踪偏移（不是身份识别，仅检测并跟踪头部位置）。 | 需要 camera worker 且已配置头部跟踪器（`--head-tracker`）。 |
 | `dance` | 从 `reachy_mini_dances_library` 队列一个舞蹈。 | 仅核心安装。 |
 | `stop_dance` | 清空已队列的舞蹈。 | 仅核心安装。 |
@@ -399,13 +419,14 @@ REACHY_MINI_YOLO_HEAD_TRACKER_START_TIMEOUT_SECONDS=180 reachy-mini-conversation
 | `idle_do_nothing` | 在空闲轮次显式保持空闲。不用于正常对话轮次。 | 仅核心安装。 |
 | `task_status` | 查看正在运行或最近完成的后台工具。 | 系统工具，所有 profile 都会加载。 |
 | `task_cancel` | 通过工具 ID 取消正在运行的后台工具。 | 系统工具，所有 profile 都会加载。 |
+| `cancel_aliyun_camera_sequence` | 取消最新或指定的 Aliyun 异步摄像头序列。 | 系统工具，所有 profile 都会加载；只取消 Aliyun camera sequence job。 |
 | `manage_memory` | 记住、更新、忘记或搜索显式长期记忆。 | 系统工具，所有 profile 都会加载。需要本地 memory store 可用。 |
 | `current_location_weather` | 获取最新近似当前位置和天气。 | 仅核心安装。实时天气需要 `WEATHERAPI_API_KEY`。 |
 | `send_email` | 通过已配置的 SMTP 账户发送用户明确要求发送的邮件。 | 需要 SMTP 凭据，并且工具调用提供 `target_email` 或配置 `default_target_email`。 |
 | `web_search` | 通过火山引擎联网搜索产品 API 搜索网页、网页总结或图片。 | 需要 `VOLCENGINE_WEB_SEARCH_API_KEY`；可选 `VOLCENGINE_WEB_SEARCH_API_URL` 和 `VOLCENGINE_WEB_SEARCH_TIMEOUT_SECONDS`。 |
 | `ask_openclaw` | 把复杂请求转发给 OpenClaw agent，用于 OpenClaw 长期记忆、跨渠道上下文或本地没有的外部工具。 | 需要运行中的 OpenClaw gateway，且 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_TOKEN` 都非空；从 `tools.txt` 移除即可禁用。 |
 
-工具是否可用受 profile 控制。写在 `profiles/<profile>/tools.txt` 中的工具，只有在对应 profile 本地文件、内置模块或外部工具模块存在时才会加载。系统工具（`task_status`、`task_cancel`、`manage_memory`）会自动加入每个 profile。`ask_openclaw` 还会额外检查 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_TOKEN`。
+工具是否可用受 profile 控制。写在 `profiles/<profile>/tools.txt` 中的工具，只有在对应 profile 本地文件、内置模块或外部工具模块存在时才会加载。系统工具（`task_status`、`task_cancel`、`cancel_aliyun_camera_sequence`、`manage_memory`）会自动加入每个 profile。`web_search`、`current_location_weather`、`send_email` 是普通的 backend 无关工具；它们的 API key 和默认收件人配置不依赖 `BACKEND_PROVIDER`。`ask_openclaw` 还会额外检查 `OPENCLAW_GATEWAY_URL` 和 `OPENCLAW_TOKEN`。
 
 ### 持久化记忆
 

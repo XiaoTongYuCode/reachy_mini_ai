@@ -84,6 +84,8 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
 
     BACKEND_PROVIDER: ClassVar[str]
     SAMPLE_RATE: ClassVar[int]
+    INPUT_SAMPLE_RATE: ClassVar[int]
+    OUTPUT_SAMPLE_RATE: ClassVar[int]
     REFRESH_CLIENT_ON_RECONNECT: ClassVar[bool]
     AUDIO_INPUT_COST_PER_1M: ClassVar[float]
     AUDIO_OUTPUT_COST_PER_1M: ClassVar[float]
@@ -117,17 +119,18 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         startup_voice: Optional[str] = None,
     ):
         """Initialize the handler."""
-        sample_rate = self.SAMPLE_RATE
+        input_sample_rate = self._get_input_sample_rate()
+        output_sample_rate = self._get_output_sample_rate()
         super().__init__(
             expected_layout="mono",
-            output_sample_rate=sample_rate,
-            input_sample_rate=sample_rate,
+            output_sample_rate=output_sample_rate,
+            input_sample_rate=input_sample_rate,
         )
 
         self.deps = deps
 
-        self.output_sample_rate = sample_rate
-        self.input_sample_rate = sample_rate
+        self.output_sample_rate = output_sample_rate
+        self.input_sample_rate = input_sample_rate
 
         self.client: AsyncOpenAI
         self.connection: AsyncRealtimeConnection | None = None
@@ -179,12 +182,17 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
     @staticmethod
     def _sanitize_tool_result_for_model(tool_name: str, tool_result: dict[str, Any]) -> dict[str, Any]:
         """Remove bulky transport-only fields before echoing tool output back to the model."""
-        if tool_name == "camera" and "b64_im" in tool_result:
+        if tool_name == "camera" and ("b64_im" in tool_result or "b64_images" in tool_result):
             sanitized = dict(tool_result)
             sanitized.pop("b64_im", None)
+            sanitized.pop("b64_images", None)
             sanitized["image_attached"] = True
             return sanitized
         return tool_result
+
+    def _should_attach_camera_image_to_realtime(self) -> bool:
+        """Return whether raw camera JPEGs can be sent as realtime input images."""
+        return True
 
     def _normalize_startup_voice(self, voice: str | None) -> str | None:
         """Return a valid persisted startup voice for this backend, or None."""
@@ -239,7 +247,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
         """Return active tool specs for the current session dependencies."""
 
     @abstractmethod
-    def _get_session_config(self, tool_specs: list[dict[str, Any]]) -> RealtimeSessionCreateRequestParam:
+    def _get_session_config(self, tool_specs: list[dict[str, Any]]) -> Any:
         """Return the backend-specific realtime session config."""
 
     def _with_memory_context(self, instructions: str) -> str:
@@ -515,6 +523,10 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
     def _persist_credentials_if_needed(self) -> None:
         """Let providers persist credentials after a successful session update."""
 
+    def _get_connect_model(self) -> str | None:
+        """Return the model query parameter for realtime websocket connect."""
+        return config.MODEL_NAME or None
+
     async def start_up(self) -> None:
         """Start the handler with minimal retries on unexpected websocket closure."""
         await self._prepare_startup_credentials()
@@ -729,7 +741,11 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 ),
             )
 
-            if bg_tool.tool_name == "camera" and "b64_im" in tool_result:
+            if (
+                bg_tool.tool_name == "camera"
+                and "b64_im" in tool_result
+                and self._should_attach_camera_image_to_realtime()
+            ):
                 # use raw base64, don't json.dumps (which adds quotes)
                 b64_im = tool_result["b64_im"]
                 if not isinstance(b64_im, str):
@@ -813,8 +829,9 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
             [tool["name"] for tool in tool_specs],
         )
         connect_kwargs: dict[str, Any] = {}
-        if config.MODEL_NAME:
-            connect_kwargs["model"] = config.MODEL_NAME
+        connect_model = self._get_connect_model()
+        if connect_model:
+            connect_kwargs["model"] = connect_model
         if self._realtime_connect_query:
             connect_kwargs["extra_query"] = self._realtime_connect_query
         async with self.client.realtime.connect(**connect_kwargs) as conn:
@@ -873,7 +890,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         self.deps.movement_manager.set_listening(False)
                         logger.debug("User speech stopped - server will auto-commit with VAD")
 
-                    if event.type == "response.output_audio.done":
+                    if event.type in {"response.output_audio.done", "response.audio.done"}:
                         if self.deps.head_wobbler is not None:
                             self.deps.head_wobbler.request_reset_after_current_audio()
                         logger.debug("response completed")
@@ -965,7 +982,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         await self.output_queue.put(AdditionalOutputs({"role": "user", "content": transcript}))
 
                     # Handle assistant transcription
-                    if event.type == "response.output_audio_transcript.done":
+                    if event.type in {"response.output_audio_transcript.done", "response.audio_transcript.done"}:
                         self._mark_activity("assistant_transcript_done")
                         logger.debug(f"Assistant transcript: {event.transcript}")
                         self._schedule_memory_message("assistant", event.transcript or "")
@@ -976,7 +993,7 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                         )
 
                     # Handle audio delta
-                    if event.type == "response.output_audio.delta":
+                    if event.type in {"response.output_audio.delta", "response.audio.delta"}:
                         decoded_pcm_bytes = base64.b64decode(event.delta)
                         decoded_pcm = np.frombuffer(decoded_pcm_bytes, dtype=np.int16).reshape(1, -1)
                         if self.gradio_mode and self.deps.head_wobbler is not None:
@@ -1210,3 +1227,11 @@ class BaseRealtimeHandler(ConversationHandler, ABC):
                 tool_choice="required",
             ),
         )
+
+    def _get_input_sample_rate(self) -> int:
+        """Return the input sample rate for this backend."""
+        return getattr(self, "INPUT_SAMPLE_RATE", self.SAMPLE_RATE)
+
+    def _get_output_sample_rate(self) -> int:
+        """Return the output sample rate for this backend."""
+        return getattr(self, "OUTPUT_SAMPLE_RATE", self.SAMPLE_RATE)

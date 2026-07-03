@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-from typing import Any, Dict, Callable, Optional, Coroutine
+from typing import Any, Dict, Callable, Optional, Awaitable, Coroutine
 
 from pydantic import Field, BaseModel, PrivateAttr
 
@@ -201,6 +201,32 @@ class BackgroundToolManager(BaseModel):
 
         return bg_tool
 
+    async def start_coroutine_tool(
+        self,
+        *,
+        call_id: str,
+        tool_name: str,
+        coroutine_factory: Callable[[str], Awaitable[dict[str, Any]]],
+        is_idle_tool_call: bool,
+        with_progress: bool = False,
+    ) -> BackgroundTool:
+        """Register and start an internally managed async tool."""
+        bg_tool = BackgroundTool(
+            id=call_id,
+            tool_name=tool_name,
+            is_idle_tool_call=is_idle_tool_call,
+            progress=ToolProgress(progress=0.0) if with_progress else None,
+            status=ToolState.RUNNING,
+        )
+        self._tools[bg_tool.tool_id] = bg_tool
+        async_task = asyncio.create_task(
+            self._run_coroutine_tool(bg_tool, coroutine_factory),
+            name=f"bg-{tool_name}-{call_id}",
+        )
+        bg_tool._task = async_task
+        logger.info("Started internal background tool: %s (id=%s)", bg_tool.tool_name, call_id)
+        return bg_tool
+
     async def _run_tool(
         self,
         bg_tool: BackgroundTool,
@@ -227,6 +253,33 @@ class BackgroundToolManager(BaseModel):
 
         await self._notification_queue.put(bg_tool.get_notification())
         logger.debug(f"Queued notification for tool: {bg_tool.tool_name} (id={bg_tool.id})")
+
+    async def _run_coroutine_tool(
+        self,
+        bg_tool: BackgroundTool,
+        coroutine_factory: Callable[[str], Awaitable[dict[str, Any]]],
+    ) -> None:
+        """Execute an internal coroutine-backed tool and handle completion."""
+        try:
+            result = await coroutine_factory(bg_tool.tool_id)
+        except asyncio.CancelledError:
+            bg_tool.status = ToolState.CANCELLED
+            bg_tool.error = "Tool cancelled"
+            bg_tool.completed_at = time.monotonic()
+            logger.debug("Internal background tool cancelled: %s (id=%s)", bg_tool.tool_name, bg_tool.id)
+        except Exception as e:
+            bg_tool.status = ToolState.FAILED
+            bg_tool.error = f"{type(e).__name__}: {e}"
+            bg_tool.completed_at = time.monotonic()
+            logger.exception("Internal background tool failed: %s (id=%s)", bg_tool.tool_name, bg_tool.id)
+        else:
+            bg_tool.result = result
+            bg_tool.status = ToolState.COMPLETED
+            bg_tool.completed_at = time.monotonic()
+            logger.debug("Internal background tool completed: %s (id=%s)", bg_tool.tool_name, bg_tool.id)
+
+        await self._notification_queue.put(bg_tool.get_notification())
+        logger.debug("Queued notification for internal tool: %s (id=%s)", bg_tool.tool_name, bg_tool.id)
 
     async def update_progress(
         self,

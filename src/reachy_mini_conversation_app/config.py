@@ -93,10 +93,15 @@ ARK_AVAILABLE_VOICES: list[str] = [
     "zh_female_cancan",
 ]
 
+ALIYUN_AVAILABLE_VOICES: list[str] = [
+    "Ethan",
+]
+
 OPENAI_BACKEND = "openai"
 GEMINI_BACKEND = "gemini"
 HF_BACKEND = "huggingface"
 ARK_BACKEND = "ark"
+ALIYUN_BACKEND = "aliyun"
 DEFAULT_BACKEND_PROVIDER = HF_BACKEND
 HF_REALTIME_CONNECTION_MODE_ENV = "HF_REALTIME_CONNECTION_MODE"
 HF_REALTIME_WS_URL_ENV = "HF_REALTIME_WS_URL"
@@ -110,6 +115,11 @@ ARK_REALTIME_WS_URL_ENV = "ARK_REALTIME_WS_URL"
 ARK_REALTIME_DEFAULT_WS_URL = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
 ARK_REALTIME_DEFAULT_RESOURCE_ID = "volc.speech.dialog"
 ARK_REALTIME_DEFAULT_VOICE = "zh_female_vv_jupiter_bigtts"
+ALIYUN_REALTIME_WS_URL_ENV = "ALIYUN_REALTIME_WS_URL"
+ALIYUN_REALTIME_MODEL_ENV = "ALIYUN_REALTIME_MODEL"
+ALIYUN_REALTIME_DEFAULT_WS_URL = "wss://llm-6v6faimhntpkss6u.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+ALIYUN_REALTIME_DEFAULT_MODEL = "qwen3.5-omni-flash-realtime"
+ALIYUN_REALTIME_DEFAULT_VOICE = "Ethan"
 
 
 @dataclass(frozen=True)
@@ -134,18 +144,21 @@ DEFAULT_MODEL_NAME_BY_BACKEND = {
     GEMINI_BACKEND: "gemini-3.1-flash-live-preview",
     HF_BACKEND: HF_DEFAULTS.model_name,
     ARK_BACKEND: "",
+    ALIYUN_BACKEND: ALIYUN_REALTIME_DEFAULT_MODEL,
 }
 BACKEND_LABEL_BY_PROVIDER = {
     OPENAI_BACKEND: "OpenAI Realtime",
     GEMINI_BACKEND: "Gemini Live",
     HF_BACKEND: "Hugging Face",
     ARK_BACKEND: "Volcengine Realtime",
+    ALIYUN_BACKEND: "Aliyun DashScope Realtime",
 }
 DEFAULT_VOICE_BY_BACKEND = {
     OPENAI_BACKEND: OPENAI_DEFAULT_VOICE,
     GEMINI_BACKEND: "Kore",
     HF_BACKEND: HF_DEFAULTS.voice,
     ARK_BACKEND: ARK_REALTIME_DEFAULT_VOICE,
+    ALIYUN_BACKEND: ALIYUN_REALTIME_DEFAULT_VOICE,
 }
 
 logger = logging.getLogger(__name__)
@@ -155,6 +168,20 @@ def _is_gemini_model_name(model_name: str | None) -> bool:
     """Return True when the provided model name targets Gemini."""
     candidate = (model_name or "").strip().lower()
     return candidate.startswith("gemini")
+
+
+def _is_aliyun_model_name(model_name: str | None) -> bool:
+    """Return True when the provided model name targets Aliyun DashScope realtime."""
+    candidate = (model_name or "").strip().lower()
+    return candidate.startswith("qwen") and "realtime" in candidate
+
+
+def _is_openai_model_name(model_name: str | None) -> bool:
+    """Return True when the provided model name targets OpenAI Realtime."""
+    candidate = (model_name or "").strip().lower()
+    if not candidate:
+        return False
+    return not _is_gemini_model_name(candidate) and not _is_aliyun_model_name(candidate)
 
 
 def _normalize_backend_provider(
@@ -184,7 +211,9 @@ def _resolve_model_name(
     if candidate:
         if normalized_backend == GEMINI_BACKEND and _is_gemini_model_name(candidate):
             return candidate
-        if normalized_backend != GEMINI_BACKEND and not _is_gemini_model_name(candidate):
+        if normalized_backend == ALIYUN_BACKEND and _is_aliyun_model_name(candidate):
+            return candidate
+        if normalized_backend == OPENAI_BACKEND and _is_openai_model_name(candidate):
             return candidate
         logger.warning(
             "MODEL_NAME=%r does not match BACKEND_PROVIDER=%r, using default %r",
@@ -224,6 +253,18 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         logger.warning("Invalid integer value for %s=%r, using default=%s", name, raw, default)
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Parse a float environment variable."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid float value for %s=%r, using default=%s", name, raw, default)
         return default
 
 
@@ -382,13 +423,15 @@ class Config:
     # Required (one of these depending on BACKEND_PROVIDER)
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # The key is downloaded in console.py if needed
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY")
 
     # Optional
     BACKEND_PROVIDER = _normalize_backend_provider(
         os.getenv("BACKEND_PROVIDER"),
         os.getenv("MODEL_NAME"),
     )
-    MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
+    _MODEL_NAME_ENV_VALUE = os.getenv(ALIYUN_REALTIME_MODEL_ENV) if BACKEND_PROVIDER == ALIYUN_BACKEND else os.getenv("MODEL_NAME")
+    MODEL_NAME = _resolve_model_name(BACKEND_PROVIDER, _MODEL_NAME_ENV_VALUE)
     HF_REALTIME_CONNECTION_MODE = (
         _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
     )
@@ -422,6 +465,11 @@ class Config:
     ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
     ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
     ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
+    ALIYUN_REALTIME_WS_URL = os.getenv(ALIYUN_REALTIME_WS_URL_ENV) or ALIYUN_REALTIME_DEFAULT_WS_URL
+    ALIYUN_REALTIME_INPUT_SAMPLE_RATE = _env_int("ALIYUN_REALTIME_INPUT_SAMPLE_RATE", 16000)
+    ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
+    ALIYUN_REALTIME_VIDEO_FPS = _env_float("ALIYUN_REALTIME_VIDEO_FPS", 1.0)
+    ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS = _env_float("ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS", 10.0)
     OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "ws://localhost:18789")
     OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN")
     OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main")
@@ -522,11 +570,13 @@ def refresh_runtime_config_from_env() -> None:
     """Refresh mutable runtime config fields from the current environment."""
     config.OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     config.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    config.DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY")
     config.BACKEND_PROVIDER = _normalize_backend_provider(
         os.getenv("BACKEND_PROVIDER"),
         os.getenv("MODEL_NAME"),
     )
-    config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, os.getenv("MODEL_NAME"))
+    model_name = os.getenv(ALIYUN_REALTIME_MODEL_ENV) if config.BACKEND_PROVIDER == ALIYUN_BACKEND else os.getenv("MODEL_NAME")
+    config.MODEL_NAME = _resolve_model_name(config.BACKEND_PROVIDER, model_name)
     config.HF_REALTIME_CONNECTION_MODE = (
         _normalize_hf_connection_mode(os.getenv(HF_REALTIME_CONNECTION_MODE_ENV)) or HF_DEFAULTS.connection_mode
     )
@@ -560,6 +610,11 @@ def refresh_runtime_config_from_env() -> None:
     config.ARK_REALTIME_BOT_NAME = os.getenv("ARK_REALTIME_BOT_NAME") or "Reachy Mini"
     config.ARK_REALTIME_INPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_INPUT_SAMPLE_RATE", 16000)
     config.ARK_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ARK_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
+    config.ALIYUN_REALTIME_WS_URL = os.getenv(ALIYUN_REALTIME_WS_URL_ENV) or ALIYUN_REALTIME_DEFAULT_WS_URL
+    config.ALIYUN_REALTIME_INPUT_SAMPLE_RATE = _env_int("ALIYUN_REALTIME_INPUT_SAMPLE_RATE", 16000)
+    config.ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE = _env_int("ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE", 24000)
+    config.ALIYUN_REALTIME_VIDEO_FPS = _env_float("ALIYUN_REALTIME_VIDEO_FPS", 1.0)
+    config.ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS = _env_float("ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS", 10.0)
     config.OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "ws://localhost:18789")
     config.OPENCLAW_TOKEN = os.getenv("OPENCLAW_TOKEN")
     config.OPENCLAW_AGENT_ID = os.getenv("OPENCLAW_AGENT_ID", "main")
@@ -595,6 +650,8 @@ def get_available_voices_for_backend(backend: str | None = None) -> list[str]:
     normalized_backend = get_backend_choice() if backend is None else _normalize_backend_provider(backend)
     if normalized_backend == GEMINI_BACKEND:
         return list(GEMINI_AVAILABLE_VOICES)
+    if normalized_backend == ALIYUN_BACKEND:
+        return list(ALIYUN_AVAILABLE_VOICES)
     if normalized_backend == ARK_BACKEND:
         return list(ARK_AVAILABLE_VOICES)
     if normalized_backend == HF_BACKEND:
@@ -660,6 +717,11 @@ def has_ark_realtime_credentials() -> bool:
     return all(bool(str(value).strip()) for value in required if value is not None) and all(
         value is not None for value in required
     )
+
+
+def has_aliyun_realtime_credentials() -> bool:
+    """Return whether Aliyun DashScope Realtime has the required API key."""
+    return bool(str(getattr(config, "DASHSCOPE_API_KEY", "") or "").strip())
 
 
 def is_gemini_model() -> bool:

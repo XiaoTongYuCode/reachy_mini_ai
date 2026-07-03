@@ -81,6 +81,28 @@ def test_backend_provider_accepts_ark_backend() -> None:
     assert config_mod._resolve_model_name(config_mod.ARK_BACKEND, None) == ""
 
 
+def test_backend_provider_accepts_aliyun_backend() -> None:
+    """Aliyun DashScope realtime should be an explicit backend selector."""
+    assert config_mod._normalize_backend_provider("aliyun", None) == config_mod.ALIYUN_BACKEND
+    assert (
+        config_mod._resolve_model_name(config_mod.ALIYUN_BACKEND, None)
+        == config_mod.ALIYUN_REALTIME_DEFAULT_MODEL
+    )
+
+
+def test_model_name_does_not_cross_backend_boundaries() -> None:
+    """Provider-specific model names should not leak across backend selectors."""
+    assert (
+        config_mod._resolve_model_name(config_mod.ALIYUN_BACKEND, "gpt-realtime")
+        == config_mod.ALIYUN_REALTIME_DEFAULT_MODEL
+    )
+    assert config_mod._resolve_model_name(config_mod.OPENAI_BACKEND, "qwen3.5-omni-flash-realtime") == "gpt-realtime"
+    assert (
+        config_mod._resolve_model_name(config_mod.GEMINI_BACKEND, "qwen3.5-omni-flash-realtime")
+        == "gemini-3.1-flash-live-preview"
+    )
+
+
 def test_huggingface_backend_does_not_resolve_model_name() -> None:
     """Hugging Face should rely on the server's model selection."""
     assert config_mod._resolve_model_name(config_mod.HF_BACKEND, None) == ""
@@ -148,6 +170,45 @@ def test_refresh_runtime_config_reloads_ark_runtime_fields(monkeypatch: pytest.M
         assert config_mod.config.ARK_REALTIME_RESOURCE_ID == "volc.speech.dialog"
         assert config_mod.config.ARK_REALTIME_WS_URL == "wss://example.test/realtime"
         assert config_mod.has_ark_realtime_credentials() is True
+    finally:
+        for name, value in original_values.items():
+            monkeypatch.setattr(config_mod.config, name, value)
+
+
+def test_refresh_runtime_config_reloads_aliyun_runtime_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Aliyun DashScope env values should feed runtime config."""
+    original_values = {
+        "BACKEND_PROVIDER": config_mod.config.BACKEND_PROVIDER,
+        "MODEL_NAME": config_mod.config.MODEL_NAME,
+        "DASHSCOPE_API_KEY": config_mod.config.DASHSCOPE_API_KEY,
+        "ALIYUN_REALTIME_WS_URL": config_mod.config.ALIYUN_REALTIME_WS_URL,
+        "ALIYUN_REALTIME_INPUT_SAMPLE_RATE": config_mod.config.ALIYUN_REALTIME_INPUT_SAMPLE_RATE,
+        "ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE": config_mod.config.ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE,
+        "ALIYUN_REALTIME_VIDEO_FPS": config_mod.config.ALIYUN_REALTIME_VIDEO_FPS,
+        "ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS": config_mod.config.ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS,
+    }
+    monkeypatch.setenv("BACKEND_PROVIDER", "aliyun")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+    monkeypatch.setenv("MODEL_NAME", "gpt-realtime")
+    monkeypatch.setenv("ALIYUN_REALTIME_MODEL", "qwen3.5-omni-flash-realtime-preview")
+    monkeypatch.setenv("ALIYUN_REALTIME_WS_URL", "wss://dashscope.example.test/api-ws/v1/realtime")
+    monkeypatch.setenv("ALIYUN_REALTIME_INPUT_SAMPLE_RATE", "16000")
+    monkeypatch.setenv("ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE", "24000")
+    monkeypatch.setenv("ALIYUN_REALTIME_VIDEO_FPS", "0.5")
+    monkeypatch.setenv("ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS", "8")
+
+    try:
+        config_mod.refresh_runtime_config_from_env()
+
+        assert config_mod.config.BACKEND_PROVIDER == config_mod.ALIYUN_BACKEND
+        assert config_mod.config.MODEL_NAME == "qwen3.5-omni-flash-realtime-preview"
+        assert config_mod.config.DASHSCOPE_API_KEY == "dashscope-key"
+        assert config_mod.config.ALIYUN_REALTIME_WS_URL == "wss://dashscope.example.test/api-ws/v1/realtime"
+        assert config_mod.config.ALIYUN_REALTIME_INPUT_SAMPLE_RATE == 16000
+        assert config_mod.config.ALIYUN_REALTIME_OUTPUT_SAMPLE_RATE == 24000
+        assert config_mod.config.ALIYUN_REALTIME_VIDEO_FPS == 0.5
+        assert config_mod.config.ALIYUN_REALTIME_VIDEO_ACTIVE_SECONDS == 8.0
+        assert config_mod.has_aliyun_realtime_credentials() is True
     finally:
         for name, value in original_values.items():
             monkeypatch.setattr(config_mod.config, name, value)

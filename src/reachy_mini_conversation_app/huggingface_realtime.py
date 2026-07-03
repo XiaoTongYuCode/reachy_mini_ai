@@ -94,6 +94,10 @@ class HuggingFaceRealtimeHandler(BaseRealtimeHandler):
         """Return active tool specs for the current session dependencies."""
         return get_active_tool_specs(self.deps)
 
+    def _get_connect_model(self) -> str | None:
+        """Hugging Face realtime endpoints choose the model server-side."""
+        return None
+
     def _get_session_config(self, tool_specs: list[dict[str, Any]]) -> RealtimeSessionCreateRequestParam:
         """Return the Hugging Face OpenAI-compatible session config."""
         return RealtimeSessionCreateRequestParam(

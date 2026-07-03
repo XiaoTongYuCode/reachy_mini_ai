@@ -26,11 +26,13 @@ from reachy_mini.media.media_manager import MediaBackend
 from reachy_mini_conversation_app.config import (
     HF_BACKEND,
     ARK_BACKEND,
+    ALIYUN_BACKEND,
     GEMINI_BACKEND,
     LOCKED_PROFILE,
     OPENAI_BACKEND,
     HF_REALTIME_WS_URL_ENV,
     HF_LOCAL_CONNECTION_MODE,
+    ALIYUN_REALTIME_MODEL_ENV,
     HF_DEPLOYED_CONNECTION_MODE,
     HF_REALTIME_CONNECTION_MODE_ENV,
     config,
@@ -43,6 +45,7 @@ from reachy_mini_conversation_app.config import (
     get_model_name_for_backend,
     get_hf_connection_selection,
     has_ark_realtime_credentials,
+    has_aliyun_realtime_credentials,
     refresh_runtime_config_from_env,
 )
 from reachy_mini_conversation_app.startup_settings import read_startup_settings, write_startup_settings
@@ -179,6 +182,8 @@ class LocalStream:
             return has_hf_realtime_target()
         if backend == ARK_BACKEND:
             return has_ark_realtime_credentials()
+        if backend == ALIYUN_BACKEND:
+            return has_aliyun_realtime_credentials()
         return self._has_key(config.OPENAI_API_KEY)
 
     @staticmethod
@@ -190,6 +195,8 @@ class LocalStream:
             return HF_REALTIME_WS_URL_ENV
         if backend == ARK_BACKEND:
             return "ARK_REALTIME_APP_ID, ARK_REALTIME_ACCESS_KEY, and ARK_REALTIME_APP_KEY"
+        if backend == ALIYUN_BACKEND:
+            return "DASHSCOPE_API_KEY"
         return "OPENAI_API_KEY"
 
     def _persist_env_value(self, env_name: str, value: str) -> None:
@@ -289,26 +296,57 @@ class LocalStream:
         """Persist GEMINI_API_KEY to environment and instance `.env`."""
         self._persist_env_value("GEMINI_API_KEY", key)
 
+    def _persist_dashscope_api_key(self, key: str) -> None:
+        """Persist DASHSCOPE_API_KEY to environment and instance `.env`."""
+        self._persist_env_value("DASHSCOPE_API_KEY", key)
+
     def _persist_backend_choice(self, backend: str) -> None:
         """Persist the selected backend without clobbering explicit model overrides."""
-        current_backend = get_backend_choice()
-        current_model_name = (os.getenv("MODEL_NAME") or "").strip()
         updates = {"BACKEND_PROVIDER": backend}
         if backend == HF_BACKEND:
             self._persist_env_values(updates)
             try:
                 os.environ.pop("MODEL_NAME", None)
+                os.environ.pop(ALIYUN_REALTIME_MODEL_ENV, None)
             except Exception:
                 pass
-            self._remove_persisted_env_values(("MODEL_NAME",))
+            self._remove_persisted_env_values(("MODEL_NAME", ALIYUN_REALTIME_MODEL_ENV))
             refresh_runtime_config_from_env()
             return
 
-        if current_model_name and current_model_name != get_model_name_for_backend(current_backend):
-            updates["MODEL_NAME"] = current_model_name
+        if backend == ARK_BACKEND:
+            self._persist_env_values(updates)
+            self._remove_persisted_env_values(("MODEL_NAME", ALIYUN_REALTIME_MODEL_ENV))
+            refresh_runtime_config_from_env()
+            return
+
+        model_env_name = ALIYUN_REALTIME_MODEL_ENV if backend == ALIYUN_BACKEND else "MODEL_NAME"
+        stale_model_env_name = "MODEL_NAME" if backend == ALIYUN_BACKEND else ALIYUN_REALTIME_MODEL_ENV
+        current_model_name = (os.getenv(model_env_name) or "").strip()
+        default_model_name = get_model_name_for_backend(backend)
+        if (
+            current_model_name
+            and current_model_name != default_model_name
+            and self._model_name_matches_backend(backend, current_model_name)
+        ):
+            updates[model_env_name] = current_model_name
         else:
-            updates["MODEL_NAME"] = get_model_name_for_backend(backend)
+            updates[model_env_name] = default_model_name
         self._persist_env_values(updates)
+        self._remove_persisted_env_values((stale_model_env_name,))
+        refresh_runtime_config_from_env()
+
+    @staticmethod
+    def _model_name_matches_backend(backend: str, model_name: str) -> bool:
+        """Return whether a persisted model override belongs to the target backend."""
+        candidate = model_name.strip().lower()
+        if backend == GEMINI_BACKEND:
+            return candidate.startswith("gemini")
+        if backend == ALIYUN_BACKEND:
+            return candidate.startswith("qwen") and "realtime" in candidate
+        if backend == OPENAI_BACKEND:
+            return bool(candidate) and not candidate.startswith("gemini") and not candidate.startswith("qwen")
+        return False
 
     def _persist_personality(self, profile: Optional[str], voice_override: Optional[str] = None) -> None:
         """Persist startup profile and voice in instance-local UI settings."""
@@ -376,6 +414,7 @@ class LocalStream:
             active_backend = self._active_backend()
             has_openai_key = self._has_required_key(OPENAI_BACKEND)
             has_gemini_key = self._has_required_key(GEMINI_BACKEND)
+            has_aliyun_key = self._has_required_key(ALIYUN_BACKEND)
             hf_session_url = get_hf_session_url()
             hf_ws_url = get_hf_direct_ws_url()
             hf_direct_host, hf_direct_port = parse_hf_direct_target(hf_ws_url)
@@ -388,6 +427,7 @@ class LocalStream:
             can_proceed_with_gemini = has_gemini_key
             can_proceed_with_hf = has_hf_connection
             can_proceed_with_ark = has_ark_realtime_credentials()
+            can_proceed_with_aliyun = has_aliyun_key
             can_proceed = self._has_required_key(active_backend)
             requires_restart = backend_provider != active_backend
             return {
@@ -396,6 +436,7 @@ class LocalStream:
                 "has_key": can_proceed,
                 "has_openai_key": has_openai_key,
                 "has_gemini_key": has_gemini_key,
+                "has_aliyun_key": has_aliyun_key,
                 "has_hf_session_url": has_hf_session_url,
                 "has_hf_ws_url": has_hf_ws_url,
                 "has_hf_connection": has_hf_connection,
@@ -407,6 +448,7 @@ class LocalStream:
                 "can_proceed_with_gemini": can_proceed_with_gemini,
                 "can_proceed_with_hf": can_proceed_with_hf,
                 "can_proceed_with_ark": can_proceed_with_ark,
+                "can_proceed_with_aliyun": can_proceed_with_aliyun,
                 "requires_restart": requires_restart,
             }
 
@@ -447,17 +489,21 @@ class LocalStream:
         @self._settings_app.post("/backend_config")
         def _set_backend(payload: BackendPayload) -> JSONResponse:
             backend = payload.backend.strip().lower()
-            if backend not in {OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND, ARK_BACKEND}:
+            if backend not in {OPENAI_BACKEND, GEMINI_BACKEND, HF_BACKEND, ARK_BACKEND, ALIYUN_BACKEND}:
                 return JSONResponse({"ok": False, "error": "invalid_backend"}, status_code=400)
 
             api_key = (payload.api_key or "").strip()
             if backend == GEMINI_BACKEND and not api_key and not self._has_required_key(GEMINI_BACKEND):
+                return JSONResponse({"ok": False, "error": "empty_key"}, status_code=400)
+            if backend == ALIYUN_BACKEND and not api_key and not self._has_required_key(ALIYUN_BACKEND):
                 return JSONResponse({"ok": False, "error": "empty_key"}, status_code=400)
 
             if backend == OPENAI_BACKEND and api_key:
                 self._persist_api_key(api_key)
             if backend == GEMINI_BACKEND and api_key:
                 self._persist_gemini_api_key(api_key)
+            if backend == ALIYUN_BACKEND and api_key:
+                self._persist_dashscope_api_key(api_key)
             if backend == HF_BACKEND:
                 hf_selection = get_hf_connection_selection()
                 hf_mode = (payload.hf_mode or hf_selection.mode).strip().lower()
